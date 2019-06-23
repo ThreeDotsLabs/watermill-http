@@ -14,7 +14,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message/infrastructure"
-	"github.com/ThreeDotsLabs/watermill/message/infrastructure/http"
+	"github.com/ThreeDotsLabs/watermill-http/pkg/http"
 )
 
 func createPubSub(t *testing.T) (*http.Publisher, *http.Subscriber) {

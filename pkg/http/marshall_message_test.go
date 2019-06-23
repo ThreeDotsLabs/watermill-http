@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	watermill_http "github.com/ThreeDotsLabs/watermill/message/infrastructure/http"
+	watermill_http "github.com/ThreeDotsLabs/watermill-http/pkg/http"
 )
 
 var (
