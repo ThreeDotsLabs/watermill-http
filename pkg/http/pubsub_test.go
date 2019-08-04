@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/message/infrastructure"
 	"github.com/ThreeDotsLabs/watermill-http/pkg/http"
+	"github.com/ThreeDotsLabs/watermill/message/infrastructure"
 )
 
 func createPubSub(t *testing.T) (*http.Publisher, *http.Subscriber) {
@@ -72,7 +72,7 @@ func TestHttpPubSub(t *testing.T) {
 		receivedMessages <- received
 	}()
 
-	publishedMessages := infrastructure.AddSimpleMessages(t, 100, pub, fmt.Sprintf("http://%s/test", sub.Addr()))
+	publishedMessages := infrastructure.PublishSimpleMessages(t, 100, pub, fmt.Sprintf("http://%s/test", sub.Addr()))
 
 	infrastructure.AssertAllMessagesReceived(t, publishedMessages, <-receivedMessages)
 }
