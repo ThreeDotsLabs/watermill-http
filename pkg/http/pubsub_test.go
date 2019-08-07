@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message/subscriber"
+	"github.com/ThreeDotsLabs/watermill/pubsub/tests"
 
 	"github.com/ThreeDotsLabs/watermill/message"
 
@@ -14,7 +15,6 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-http/pkg/http"
-	"github.com/ThreeDotsLabs/watermill/message/infrastructure"
 )
 
 func createPubSub(t *testing.T) (*http.Publisher, *http.Subscriber) {
@@ -37,9 +37,9 @@ func createPubSub(t *testing.T) (*http.Publisher, *http.Subscriber) {
 func TestPublishSubscribe(t *testing.T) {
 	t.Skip("todo - fix")
 
-	infrastructure.TestPubSub(
+	tests.TestPubSub(
 		t,
-		infrastructure.Features{
+		tests.Features{
 			ConsumerGroups:      false,
 			ExactlyOnceDelivery: true,
 			GuaranteedOrder:     true,
@@ -72,9 +72,9 @@ func TestHttpPubSub(t *testing.T) {
 		receivedMessages <- received
 	}()
 
-	publishedMessages := infrastructure.PublishSimpleMessages(t, 100, pub, fmt.Sprintf("http://%s/test", sub.Addr()))
+	publishedMessages := tests.PublishSimpleMessages(t, 100, pub, fmt.Sprintf("http://%s/test", sub.Addr()))
 
-	infrastructure.AssertAllMessagesReceived(t, publishedMessages, <-receivedMessages)
+	tests.AssertAllMessagesReceived(t, publishedMessages, <-receivedMessages)
 }
 
 func waitForHTTP(t *testing.T, sub *http.Subscriber, timeoutTime time.Duration) {
