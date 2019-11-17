@@ -16,25 +16,29 @@ import (
 )
 
 func TestSSE(t *testing.T) {
+	router, err := message.NewRouter(message.RouterConfig{}, watermill.NopLogger{})
+	require.NoError(t, err)
+
 	pubsub := gochannel.NewGoChannel(gochannel.Config{}, watermill.NopLogger{})
 
-	streamAdapter := streamAdapter{
+	sseRouter, err := http.NewSSERouter(router, pubsub, watermill.NopLogger{})
+	require.NoError(t, err)
+
+	allPostsHandler := sseRouter.AddHandler("post-updated", allPostsStreamAdapter{
+		allPostsRepository: postsRepositoryMock{},
+	})
+	postHandler := sseRouter.AddHandler("post-updated", postStreamAdapter{
 		postsRepository: postsRepositoryMock{},
-	}
-
-	h := http.NewSSEHandler(
-		pubsub,
-		"topic",
-		streamAdapter,
-	)
-
-	postID := watermill.NewUUID()
+	})
 
 	r := chi.NewRouter()
-	r.Get("/posts/{id}", h.Handler)
+	r.Get("/posts", allPostsHandler.Handle)
+	r.Get("/posts/{id}", postHandler.Handle)
 
 	server := httptest.NewServer(r)
 	defer server.Close()
+
+	postID := watermill.NewUUID()
 
 	t.Run("generic_request", func(t *testing.T) {
 		req, err := netHTTP.NewRequest("GET", server.URL+"/posts/"+postID, nil)
@@ -67,15 +71,13 @@ type PostUpdated struct {
 	ID string
 }
 
-type postsRepository interface {
-	ByID(id string) (Post, error)
+type postStreamAdapter struct {
+	postsRepository interface {
+		ByID(id string) (Post, error)
+	}
 }
 
-type streamAdapter struct {
-	postsRepository postsRepository
-}
-
-func (s streamAdapter) ResponseProvider(w netHTTP.ResponseWriter, r *netHTTP.Request) (response interface{}, ok bool) {
+func (s postStreamAdapter) GetResponse(w netHTTP.ResponseWriter, r *netHTTP.Request) (response interface{}, ok bool) {
 	postID := chi.URLParam(r, "id")
 
 	post, err := s.postsRepository.ByID(postID)
@@ -87,7 +89,7 @@ func (s streamAdapter) ResponseProvider(w netHTTP.ResponseWriter, r *netHTTP.Req
 	return post, true
 }
 
-func (s streamAdapter) Validator(r *netHTTP.Request, msg *message.Message) (ok bool) {
+func (s postStreamAdapter) Validate(r *netHTTP.Request, msg *message.Message) (ok bool) {
 	postUpdated := PostUpdated{}
 
 	err := json.Unmarshal(msg.Payload, &postUpdated)
@@ -100,11 +102,44 @@ func (s streamAdapter) Validator(r *netHTTP.Request, msg *message.Message) (ok b
 	return postUpdated.ID == postID
 }
 
+type allPostsStreamAdapter struct {
+	allPostsRepository interface {
+		All() ([]Post, error)
+	}
+}
+
+func (s allPostsStreamAdapter) GetResponse(w netHTTP.ResponseWriter, r *netHTTP.Request) (response interface{}, ok bool) {
+	posts, err := s.allPostsRepository.All()
+	if err != nil {
+		w.WriteHeader(500)
+		return nil, false
+	}
+
+	return posts, true
+}
+
+func (s allPostsStreamAdapter) Validate(r *netHTTP.Request, msg *message.Message) (ok bool) {
+	return true
+}
+
 type postsRepositoryMock struct{}
 
 func (p postsRepositoryMock) ByID(id string) (Post, error) {
 	return Post{
 		ID:      id,
 		Content: "some content",
+	}, nil
+}
+
+func (p postsRepositoryMock) All() ([]Post, error) {
+	return []Post{
+		{
+			ID:      "1",
+			Content: "some content",
+		},
+		{
+			ID:      "2",
+			Content: "some content",
+		},
 	}, nil
 }
