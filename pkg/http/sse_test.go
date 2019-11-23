@@ -21,7 +21,7 @@ func TestSSE(t *testing.T) {
 
 	pubsub := gochannel.NewGoChannel(gochannel.Config{}, watermill.NopLogger{})
 
-	sseRouter, err := http.NewSSERouter(router, pubsub, watermill.NopLogger{})
+	sseRouter, err := http.NewSSERouter(router, pubsub, http.DefaultErrorHandler, watermill.NopLogger{})
 	require.NoError(t, err)
 
 	allPostsHandler := sseRouter.AddHandler("post-updated", allPostsStreamAdapter{
@@ -32,8 +32,8 @@ func TestSSE(t *testing.T) {
 	})
 
 	r := chi.NewRouter()
-	r.Get("/posts", allPostsHandler.Handle)
-	r.Get("/posts/{id}", postHandler.Handle)
+	r.Get("/posts", allPostsHandler)
+	r.Get("/posts/{id}", postHandler)
 
 	server := httptest.NewServer(r)
 	defer server.Close()

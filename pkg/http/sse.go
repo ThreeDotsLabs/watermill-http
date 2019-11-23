@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -19,71 +20,106 @@ type StreamAdapter interface {
 	Validate(r *http.Request, msg *message.Message) (ok bool)
 }
 
+type HandleErrorFunc func(w http.ResponseWriter, r *http.Request, err error)
+
+type defaultErrorResponse struct {
+	Error string `json:"error"`
+}
+
+// DefaultErrorHandler writes JSON error response along with Internal Server Error code (500).
+func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	w.WriteHeader(500)
+	render.Respond(w, r, defaultErrorResponse{Error: err.Error()})
+}
+
 type SSERouter struct {
 	internalPubSub *gochannel.GoChannel
 
 	upstreamRouter     *message.Router
 	upstreamSubscriber message.Subscriber
+
+	errorHandler HandleErrorFunc
+
+	logger watermill.LoggerAdapter
 }
 
 func NewSSERouter(
 	upstreamRouter *message.Router,
 	upstreamSubscriber message.Subscriber,
+	errorHandler HandleErrorFunc,
 	logger watermill.LoggerAdapter,
 ) (SSERouter, error) {
+	if upstreamRouter == nil {
+		return SSERouter{}, errors.New("missing upstream router")
+	}
+	if upstreamSubscriber == nil {
+		return SSERouter{}, errors.New("missing upstream subscriber")
+	}
+	if errorHandler == nil {
+		errorHandler = DefaultErrorHandler
+	}
+	if logger == nil {
+		logger = watermill.NopLogger{}
+	}
+
 	return SSERouter{
 		internalPubSub: gochannel.NewGoChannel(gochannel.Config{}, logger),
 
 		upstreamRouter:     upstreamRouter,
 		upstreamSubscriber: upstreamSubscriber,
+
+		errorHandler: errorHandler,
+
+		logger: logger,
 	}, nil
 }
 
-func (r SSERouter) AddHandler(topic string, streamAdapter StreamAdapter) SSEHandler {
+func (r SSERouter) AddHandler(topic string, streamAdapter StreamAdapter) http.HandlerFunc {
+	r.logger.Trace("Adding handler for topic", watermill.LogFields{
+		"topic": topic,
+	})
+
 	r.upstreamRouter.AddHandler(
-		// TODO come up with better handler name?
-		fmt.Sprintf("sse_%s_%s", topic, watermill.NewUUID()),
+		fmt.Sprintf("sse-%s-%s", topic, watermill.NewUUID()),
 		topic,
 		r.upstreamSubscriber,
 		topic,
 		r.internalPubSub,
-		func(msg *message.Message) (messages []*message.Message, e error) {
+		func(msg *message.Message) ([]*message.Message, error) {
 			return []*message.Message{msg}, nil
 		},
 	)
 
-	return newSSEHandler(r.internalPubSub, topic, streamAdapter)
+	handler := sseHandler{
+		subscriber:    r.internalPubSub,
+		topic:         topic,
+		streamAdapter: streamAdapter,
+		errorHandler:  r.errorHandler,
+		logger:        r.logger,
+	}
+
+	return handler.Handle
 }
 
-type SSEHandler struct {
+type sseHandler struct {
 	subscriber    message.Subscriber
 	topic         string
 	streamAdapter StreamAdapter
+	errorHandler  HandleErrorFunc
+	logger        watermill.LoggerAdapter
 }
 
-func newSSEHandler(
-	subscriber message.Subscriber,
-	topic string,
-	streamAdapter StreamAdapter,
-) SSEHandler {
-	return SSEHandler{
-		subscriber:    subscriber,
-		topic:         topic,
-		streamAdapter: streamAdapter,
-	}
-}
-
-func (s SSEHandler) Handle(w http.ResponseWriter, r *http.Request) {
+func (h sseHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if render.GetAcceptedContentType(r) == render.ContentTypeEventStream {
-		s.handleEventStream(w, r)
+		h.handleEventStream(w, r)
 		return
 	}
 
-	s.handleGenericRequest(w, r)
+	h.handleGenericRequest(w, r)
 }
 
-func (s SSEHandler) handleGenericRequest(w http.ResponseWriter, r *http.Request) {
-	response, ok := s.streamAdapter.GetResponse(w, r)
+func (h sseHandler) handleGenericRequest(w http.ResponseWriter, r *http.Request) {
+	response, ok := h.streamAdapter.GetResponse(w, r)
 	if !ok {
 		return
 	}
@@ -91,46 +127,56 @@ func (s SSEHandler) handleGenericRequest(w http.ResponseWriter, r *http.Request)
 	render.Respond(w, r, response)
 }
 
-func (s SSEHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
-	messages, err := s.subscriber.Subscribe(r.Context(), s.topic)
+func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
+	messages, err := h.subscriber.Subscribe(r.Context(), h.topic)
 	if err != nil {
-		w.WriteHeader(500)
+		h.errorHandler(w, r, err)
 		return
 	}
 
 	responsesChan := make(chan interface{})
 
 	go func() {
-		defer close(responsesChan)
+		defer func() {
+			h.logger.Trace("Closing SSE handler", nil)
+			close(responsesChan)
+		}()
 
-		response, ok := s.streamAdapter.GetResponse(w, r)
+		response, ok := h.streamAdapter.GetResponse(w, r)
 		if !ok {
 			return
 		}
+
 		responsesChan <- response
 
-		for msg := range messages {
-			ok := s.streamAdapter.Validate(r, msg)
-			if !ok {
-				msg.Ack()
-				continue
-			}
+		h.logger.Trace("Listening for messages", nil)
 
-			response, ok := s.streamAdapter.GetResponse(w, r)
-			if !ok {
-				return
+		for msg := range messages {
+			msg.Ack()
+
+			response, ok := h.processMessage(w, r, msg)
+			if ok {
+				responsesChan <- response
 			}
 
 			select {
 			case <-r.Context().Done():
-				break
+				return
 			default:
 			}
-
-			responsesChan <- response
-			msg.Ack()
 		}
 	}()
 
 	render.Respond(w, r, responsesChan)
+}
+
+func (h sseHandler) processMessage(w http.ResponseWriter, r *http.Request, msg *message.Message) (interface{}, bool) {
+	ok := h.streamAdapter.Validate(r, msg)
+	if !ok {
+		return nil, false
+	}
+
+	h.logger.Trace("Received valid message", watermill.LogFields{"message": msg})
+
+	return h.streamAdapter.GetResponse(w, r)
 }
