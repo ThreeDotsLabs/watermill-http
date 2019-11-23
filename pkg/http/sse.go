@@ -176,7 +176,7 @@ func (h sseHandler) processMessage(w http.ResponseWriter, r *http.Request, msg *
 		return nil, false
 	}
 
-	h.logger.Trace("Received valid message", watermill.LogFields{"message": msg})
+	h.logger.Trace("Received valid message", nil)
 
 	return h.streamAdapter.GetResponse(w, r)
 }
