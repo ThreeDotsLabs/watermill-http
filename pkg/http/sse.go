@@ -79,11 +79,13 @@ func (r SSERouter) AddHandler(topic string, streamAdapter StreamAdapter) http.Ha
 		"topic": topic,
 	})
 
+	internalTopic := watermill.NewUUID()
+
 	r.upstreamRouter.AddHandler(
-		fmt.Sprintf("sse-%s-%s", topic, watermill.NewUUID()),
+		fmt.Sprintf("sse-%s-%s", topic, internalTopic),
 		topic,
 		r.upstreamSubscriber,
-		topic,
+		internalTopic,
 		r.internalPubSub,
 		func(msg *message.Message) ([]*message.Message, error) {
 			return []*message.Message{msg}, nil
@@ -92,7 +94,7 @@ func (r SSERouter) AddHandler(topic string, streamAdapter StreamAdapter) http.Ha
 
 	handler := sseHandler{
 		subscriber:    r.internalPubSub,
-		topic:         topic,
+		topic:         internalTopic,
 		streamAdapter: streamAdapter,
 		errorHandler:  r.errorHandler,
 		logger:        r.logger,

@@ -1,11 +1,17 @@
 package http_test
 
 import (
+	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	netHTTP "net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-http/pkg/http"
@@ -24,12 +30,25 @@ func TestSSE(t *testing.T) {
 	sseRouter, err := http.NewSSERouter(router, pubsub, http.DefaultErrorHandler, watermill.NopLogger{})
 	require.NoError(t, err)
 
-	allPostsHandler := sseRouter.AddHandler("post-updated", allPostsStreamAdapter{
+	postUpdatedTopic := "post-updated"
+
+	allPostsHandler := sseRouter.AddHandler(postUpdatedTopic, allPostsStreamAdapter{
 		allPostsRepository: postsRepositoryMock{},
 	})
-	postHandler := sseRouter.AddHandler("post-updated", postStreamAdapter{
+
+	postHandler := sseRouter.AddHandler(postUpdatedTopic, postStreamAdapter{
 		postsRepository: postsRepositoryMock{},
 	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		err := router.Run(ctx)
+		if err != nil {
+			t.Errorf("unexpected error while startig router: %v", err)
+		}
+	}()
 
 	r := chi.NewRouter()
 	r.Get("/posts", allPostsHandler)
@@ -57,9 +76,126 @@ func TestSSE(t *testing.T) {
 		require.Equal(t, postID, post.ID)
 	})
 
-	t.Run("event_stream", func(t *testing.T) {
-		// TODO
+	t.Run("event_stream_no_updates", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		responses := newSSERequest(t, ctx, server.URL+"/posts/"+postID)
+
+		response := <-responses
+		post := Post{}
+		err = json.Unmarshal(response, &post)
+		require.NoError(t, err)
+		require.Equal(t, postID, post.ID)
+
+		response = <-responses
+		require.Nil(t, response, "should receive no update")
 	})
+
+	t.Run("event_stream_updated", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		responses := newSSERequest(t, ctx, server.URL+"/posts/"+postID)
+
+		response := <-responses
+		post := Post{}
+		err = json.Unmarshal(response, &post)
+		require.NoError(t, err)
+		require.Equal(t, postID, post.ID)
+
+		// Publish an event
+		payload, err := json.Marshal(PostUpdated{ID: postID})
+		require.NoError(t, err)
+
+		msg := message.NewMessage(watermill.NewUUID(), payload)
+		err = pubsub.Publish(postUpdatedTopic, msg)
+		require.NoError(t, err)
+
+		time.Sleep(time.Millisecond * 100)
+
+		// Should receive an update
+		response = <-responses
+		post = Post{}
+		err = json.Unmarshal(response, &post)
+		require.NoError(t, err)
+		require.Equal(t, postID, post.ID)
+
+		// Publish an event with different post ID
+		payload, err = json.Marshal(PostUpdated{ID: watermill.NewUUID()})
+		require.NoError(t, err)
+
+		msg = message.NewMessage(watermill.NewUUID(), payload)
+		err = pubsub.Publish(postUpdatedTopic, msg)
+		require.NoError(t, err)
+
+		time.Sleep(time.Millisecond * 100)
+
+		response = <-responses
+		require.Nil(t, response, "should receive no update")
+	})
+}
+
+func newSSERequest(t *testing.T, ctx context.Context, url string) chan []byte {
+	req, err := netHTTP.NewRequest("GET", url, nil)
+	require.NoError(t, err)
+
+	req = req.WithContext(ctx)
+	req.Header.Add("Accept", "text/event-stream")
+
+	resp, err := netHTTP.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	require.Equal(t, 200, resp.StatusCode)
+
+	br := bufio.NewReader(resp.Body)
+
+	responsesChan := make(chan []byte)
+
+	go func() {
+		defer close(responsesChan)
+		defer resp.Body.Close()
+
+		for {
+			line, err := br.ReadBytes('\n')
+			if err != nil {
+				if err != io.EOF && err != context.DeadlineExceeded && err != context.Canceled {
+					t.Errorf("unexpected error: %v", err)
+				}
+
+				return
+			}
+
+			if len(line) < 2 {
+				continue
+			}
+
+			parts := bytes.Split(line, []byte(": "))
+			if len(parts) != 2 {
+				t.Errorf("expected 2 parts, got %v: %v", len(parts), parts)
+				return
+			}
+
+			switch string(parts[0]) {
+			case "event":
+				eventName := strings.TrimSpace(string(parts[1]))
+				if eventName != "data" {
+					t.Errorf("expected data, got %v instead", eventName)
+					return
+				}
+			case "data":
+				responsesChan <- parts[1]
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+		}
+	}()
+
+	return responsesChan
 }
 
 type Post struct {
