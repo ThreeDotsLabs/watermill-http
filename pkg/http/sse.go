@@ -1,8 +1,6 @@
 package http
 
 import (
-	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -33,14 +31,9 @@ func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 type SSERouter struct {
-	internalPubSub *gochannel.GoChannel
-
-	upstreamRouter     *message.Router
-	upstreamSubscriber message.Subscriber
-
+	fanOut       gochannel.FanOut
 	errorHandler HandleErrorFunc
-
-	logger watermill.LoggerAdapter
+	logger       watermill.LoggerAdapter
 }
 
 func NewSSERouter(
@@ -49,12 +42,6 @@ func NewSSERouter(
 	errorHandler HandleErrorFunc,
 	logger watermill.LoggerAdapter,
 ) (SSERouter, error) {
-	if upstreamRouter == nil {
-		return SSERouter{}, errors.New("missing upstream router")
-	}
-	if upstreamSubscriber == nil {
-		return SSERouter{}, errors.New("missing upstream subscriber")
-	}
 	if errorHandler == nil {
 		errorHandler = DefaultErrorHandler
 	}
@@ -62,15 +49,15 @@ func NewSSERouter(
 		logger = watermill.NopLogger{}
 	}
 
+	fanOut, err := gochannel.NewFanOut(upstreamRouter, upstreamSubscriber, logger)
+	if err != nil {
+		return SSERouter{}, err
+	}
+
 	return SSERouter{
-		internalPubSub: gochannel.NewGoChannel(gochannel.Config{}, logger),
-
-		upstreamRouter:     upstreamRouter,
-		upstreamSubscriber: upstreamSubscriber,
-
+		fanOut:       fanOut,
 		errorHandler: errorHandler,
-
-		logger: logger,
+		logger:       logger,
 	}, nil
 }
 
@@ -79,22 +66,11 @@ func (r SSERouter) AddHandler(topic string, streamAdapter StreamAdapter) http.Ha
 		"topic": topic,
 	})
 
-	internalTopic := watermill.NewUUID()
-
-	r.upstreamRouter.AddHandler(
-		fmt.Sprintf("sse-%s-%s", topic, internalTopic),
-		topic,
-		r.upstreamSubscriber,
-		internalTopic,
-		r.internalPubSub,
-		func(msg *message.Message) ([]*message.Message, error) {
-			return []*message.Message{msg}, nil
-		},
-	)
+	r.fanOut.AddSubscription(topic)
 
 	handler := sseHandler{
-		subscriber:    r.internalPubSub,
-		topic:         internalTopic,
+		subscriber:    r.fanOut,
+		topic:         topic,
 		streamAdapter: streamAdapter,
 		errorHandler:  r.errorHandler,
 		logger:        r.logger,
