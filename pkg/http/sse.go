@@ -31,7 +31,7 @@ func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 type SSERouter struct {
-	fanOut       gochannel.FanOut
+	fanOut       *gochannel.FanOut
 	errorHandler HandleErrorFunc
 	logger       watermill.LoggerAdapter
 }
