@@ -46,7 +46,7 @@ func TestSSE(t *testing.T) {
 	go func() {
 		err := router.Run(ctx)
 		if err != nil {
-			t.Errorf("unexpected error while startig router: %v", err)
+			t.Errorf("unexpected error while starting router: %v", err)
 		}
 	}()
 
