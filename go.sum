@@ -1,13 +1,5 @@
-github.com/ThreeDotsLabs/watermill v1.0.0 h1:jkKDp5aFz/m4eHr8kntbVxjOnseew6fv/nwE7VmFHmc=
-github.com/ThreeDotsLabs/watermill v1.0.0/go.mod h1:gjVFKc8aN+vmEHw3pA0kh4mmuwHe02nyfghb6IWWiKE=
-github.com/ThreeDotsLabs/watermill v1.0.1 h1:LITkp5Rnb6H/1faA7QH/BSBq8REIEtaNPLVeuFcha24=
-github.com/ThreeDotsLabs/watermill v1.0.1/go.mod h1:gjVFKc8aN+vmEHw3pA0kh4mmuwHe02nyfghb6IWWiKE=
-github.com/ThreeDotsLabs/watermill v1.0.3-0.20191128212700-7071ab73a4b1 h1:QgSGFDZIIMYnH97DtTo9DhVGW8RiXtJ83t5bU0UffBc=
-github.com/ThreeDotsLabs/watermill v1.0.3-0.20191128212700-7071ab73a4b1/go.mod h1:vZCPh7eN0P7r2qKau4SfmcUZ83+3JXWkRl4BiWUlqFw=
-github.com/ThreeDotsLabs/watermill v1.0.3-0.20191206091245-86567f7cefea h1:JbUr4NF0+l9ScgG/3nOk4G3YVMULrw/Avf3ORwSGqBI=
-github.com/ThreeDotsLabs/watermill v1.0.3-0.20191206091245-86567f7cefea/go.mod h1:vZCPh7eN0P7r2qKau4SfmcUZ83+3JXWkRl4BiWUlqFw=
-github.com/ThreeDotsLabs/watermill v1.0.3-0.20191206093422-4994aa67b47a h1:T3Pd2UojK/32QllEHzmuSe9WDw993lykmBzyucv/I+I=
-github.com/ThreeDotsLabs/watermill v1.0.3-0.20191206093422-4994aa67b47a/go.mod h1:vZCPh7eN0P7r2qKau4SfmcUZ83+3JXWkRl4BiWUlqFw=
+github.com/ThreeDotsLabs/watermill v1.1.0 h1:RWVfySGHEaK4TZhr8L/rKkYkSbyzWRzE8ut7QP7esLY=
+github.com/ThreeDotsLabs/watermill v1.1.0/go.mod h1:Qd1xNFxolCAHCzcMrm6RnjW0manbvN+DJVWc1MWRFlI=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
