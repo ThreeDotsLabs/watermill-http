@@ -27,7 +27,7 @@ func TestSSE(t *testing.T) {
 
 	pubsub := gochannel.NewGoChannel(gochannel.Config{}, watermill.NopLogger{})
 
-	sseRouter, err := http.NewSSERouter(router, pubsub, http.DefaultErrorHandler, watermill.NopLogger{})
+	sseRouter, err := http.NewSSERouter(pubsub, http.DefaultErrorHandler, watermill.NopLogger{})
 	require.NoError(t, err)
 
 	postUpdatedTopic := "post-updated"

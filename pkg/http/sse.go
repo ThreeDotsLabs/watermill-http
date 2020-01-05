@@ -37,7 +37,6 @@ type SSERouter struct {
 }
 
 func NewSSERouter(
-	upstreamRouter *message.Router,
 	upstreamSubscriber message.Subscriber,
 	errorHandler HandleErrorFunc,
 	logger watermill.LoggerAdapter,
@@ -49,7 +48,7 @@ func NewSSERouter(
 		logger = watermill.NopLogger{}
 	}
 
-	fanOut, err := gochannel.NewFanOut(upstreamRouter, upstreamSubscriber, logger)
+	fanOut, err := gochannel.NewFanOut(upstreamSubscriber, logger)
 	if err != nil {
 		return SSERouter{}, err
 	}
