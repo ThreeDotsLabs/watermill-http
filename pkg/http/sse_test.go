@@ -22,9 +22,6 @@ import (
 )
 
 func TestSSE(t *testing.T) {
-	router, err := message.NewRouter(message.RouterConfig{}, watermill.NopLogger{})
-	require.NoError(t, err)
-
 	pubsub := gochannel.NewGoChannel(gochannel.Config{}, watermill.NopLogger{})
 
 	sseRouter, err := http.NewSSERouter(pubsub, http.DefaultErrorHandler, watermill.NopLogger{})
@@ -44,7 +41,7 @@ func TestSSE(t *testing.T) {
 	defer cancel()
 
 	go func() {
-		err := router.Run(ctx)
+		err := sseRouter.Run(ctx)
 		if err != nil {
 			t.Errorf("unexpected error while starting router: %v", err)
 		}

@@ -1,12 +1,14 @@
 package http
 
 import (
+	"context"
 	"net/http"
+
+	"github.com/go-chi/render"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
-	"github.com/go-chi/render"
 )
 
 type StreamAdapter interface {
@@ -30,12 +32,14 @@ func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	render.Respond(w, r, defaultErrorResponse{Error: err.Error()})
 }
 
+// SSERouter
 type SSERouter struct {
 	fanOut       *gochannel.FanOut
 	errorHandler HandleErrorFunc
 	logger       watermill.LoggerAdapter
 }
 
+// NewSSERouter creates new SSERouter.
 func NewSSERouter(
 	upstreamSubscriber message.Subscriber,
 	errorHandler HandleErrorFunc,
@@ -76,6 +80,15 @@ func (r SSERouter) AddHandler(topic string, streamAdapter StreamAdapter) http.Ha
 	}
 
 	return handler.Handle
+}
+
+func (r SSERouter) Run(ctx context.Context) error {
+	return r.fanOut.Run(ctx)
+}
+
+// Running is closed when the SSERouter is running.
+func (r SSERouter) Running() chan struct{} {
+	return r.fanOut.Running()
 }
 
 type sseHandler struct {
