@@ -13,18 +13,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi"
+	"github.com/stretchr/testify/require"
+
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-http/pkg/http"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
-	"github.com/go-chi/chi"
-	"github.com/stretchr/testify/require"
 )
 
 func TestSSE(t *testing.T) {
 	pubsub := gochannel.NewGoChannel(gochannel.Config{}, watermill.NopLogger{})
 
-	sseRouter, err := http.NewSSERouter(pubsub, http.DefaultErrorHandler, watermill.NopLogger{})
+	sseRouter, err := http.NewSSERouter(http.SSERouterConfig{
+		UpstreamSubscriber: pubsub,
+		ErrorHandler:       http.DefaultErrorHandler,
+	}, watermill.NopLogger{})
 	require.NoError(t, err)
 
 	postUpdatedTopic := "post-updated"

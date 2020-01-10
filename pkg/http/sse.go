@@ -2,9 +2,9 @@ package http
 
 import (
 	"context"
-	"net/http"
-
 	"github.com/go-chi/render"
+	"github.com/pkg/errors"
+	"net/http"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -32,38 +32,59 @@ func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	render.Respond(w, r, defaultErrorResponse{Error: err.Error()})
 }
 
-// SSERouter
+// SSERouter is a router handling Server-Sent Events.
 type SSERouter struct {
-	fanOut       *gochannel.FanOut
-	errorHandler HandleErrorFunc
-	logger       watermill.LoggerAdapter
+	fanOut *gochannel.FanOut
+	config SSERouterConfig
+	logger watermill.LoggerAdapter
 }
 
-// NewSSERouter creates new SSERouter.
+type SSERouterConfig struct {
+	UpstreamSubscriber message.Subscriber
+	ErrorHandler       HandleErrorFunc
+}
+
+func (c *SSERouterConfig) setDefaults() {
+	if c.ErrorHandler == nil {
+		c.ErrorHandler = DefaultErrorHandler
+	}
+}
+
+func (c SSERouterConfig) validate() error {
+	if c.UpstreamSubscriber == nil {
+		return errors.New("upstream subscriber is nil")
+	}
+
+	return nil
+}
+
+// NewSSERouter creates a new SSERouter.
 func NewSSERouter(
-	upstreamSubscriber message.Subscriber,
-	errorHandler HandleErrorFunc,
+	config SSERouterConfig,
 	logger watermill.LoggerAdapter,
 ) (SSERouter, error) {
-	if errorHandler == nil {
-		errorHandler = DefaultErrorHandler
+	config.setDefaults()
+	if err := config.validate(); err != nil {
+		return SSERouter{}, errors.Wrap(err, "invalid SSERouter config")
 	}
+
 	if logger == nil {
 		logger = watermill.NopLogger{}
 	}
 
-	fanOut, err := gochannel.NewFanOut(upstreamSubscriber, logger)
+	fanOut, err := gochannel.NewFanOut(config.UpstreamSubscriber, logger)
 	if err != nil {
-		return SSERouter{}, err
+		return SSERouter{}, errors.Wrap(err, "could not create a FanOut")
 	}
 
 	return SSERouter{
-		fanOut:       fanOut,
-		errorHandler: errorHandler,
-		logger:       logger,
+		fanOut: fanOut,
+		config: config,
+		logger: logger,
 	}, nil
 }
 
+// AddHandler starts a new handler for a given topic.
 func (r SSERouter) AddHandler(topic string, streamAdapter StreamAdapter) http.HandlerFunc {
 	r.logger.Trace("Adding handler for topic", watermill.LogFields{
 		"topic": topic,
@@ -75,13 +96,14 @@ func (r SSERouter) AddHandler(topic string, streamAdapter StreamAdapter) http.Ha
 		subscriber:    r.fanOut,
 		topic:         topic,
 		streamAdapter: streamAdapter,
-		errorHandler:  r.errorHandler,
+		config:        r.config,
 		logger:        r.logger,
 	}
 
 	return handler.Handle
 }
 
+// Run starts the SSERouter.
 func (r SSERouter) Run(ctx context.Context) error {
 	return r.fanOut.Run(ctx)
 }
@@ -95,7 +117,7 @@ type sseHandler struct {
 	subscriber    message.Subscriber
 	topic         string
 	streamAdapter StreamAdapter
-	errorHandler  HandleErrorFunc
+	config        SSERouterConfig
 	logger        watermill.LoggerAdapter
 }
 
@@ -120,7 +142,7 @@ func (h sseHandler) handleGenericRequest(w http.ResponseWriter, r *http.Request)
 func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	messages, err := h.subscriber.Subscribe(r.Context(), h.topic)
 	if err != nil {
-		h.errorHandler(w, r, err)
+		h.config.ErrorHandler(w, r, err)
 		return
 	}
 
@@ -166,7 +188,7 @@ func (h sseHandler) processMessage(w http.ResponseWriter, r *http.Request, msg *
 		return nil, false
 	}
 
-	h.logger.Trace("Received valid message", nil)
+	h.logger.Trace("Received valid message", watermill.LogFields{"uuid": msg.UUID})
 
 	return h.streamAdapter.GetResponse(w, r)
 }
