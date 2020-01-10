@@ -120,10 +120,6 @@ func (p *Publisher) Publish(topic string, messages ...*message.Message) error {
 			return errors.Wrap(ErrErrorResponse, resp.Status)
 		}
 
-		if err != nil {
-			return errors.Wrapf(err, "could not close response body for message %s", msg.UUID)
-		}
-
 		p.logger.Trace("Message published", logFields)
 	}
 
