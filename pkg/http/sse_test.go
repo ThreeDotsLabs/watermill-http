@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/ioutil"
 	netHTTP "net/http"
@@ -20,6 +21,10 @@ import (
 	"github.com/ThreeDotsLabs/watermill-http/pkg/http"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
+)
+
+const (
+	notExistingID = "not-existing-id"
 )
 
 func TestSSE(t *testing.T) {
@@ -75,6 +80,16 @@ func TestSSE(t *testing.T) {
 		err = json.Unmarshal(body, &post)
 		require.NoError(t, err)
 		require.Equal(t, postID, post.ID)
+	})
+
+	t.Run("error_request", func(t *testing.T) {
+		req, err := netHTTP.NewRequest("GET", server.URL+"/posts/"+notExistingID, nil)
+		require.NoError(t, err)
+
+		resp, err := netHTTP.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		require.Equal(t, 500, resp.StatusCode)
 	})
 
 	t.Run("event_stream_no_updates", func(t *testing.T) {
@@ -262,6 +277,10 @@ func (s allPostsStreamAdapter) Validate(r *netHTTP.Request, msg *message.Message
 type postsRepositoryMock struct{}
 
 func (p postsRepositoryMock) ByID(id string) (Post, error) {
+	if id == notExistingID {
+		return Post{}, errors.New("post doesn't exist")
+	}
+
 	return Post{
 		ID:      id,
 		Content: "some content",
