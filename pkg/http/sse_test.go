@@ -92,6 +92,18 @@ func TestSSE(t *testing.T) {
 		require.Equal(t, 500, resp.StatusCode)
 	})
 
+	t.Run("event_stream_error_request", func(t *testing.T) {
+		req, err := netHTTP.NewRequest("GET", server.URL+"/posts/"+notExistingID, nil)
+		require.NoError(t, err)
+
+		req.Header.Add("Accept", "text/event-stream")
+
+		resp, err := netHTTP.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		require.Equal(t, 500, resp.StatusCode)
+	})
+
 	t.Run("event_stream_no_updates", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
