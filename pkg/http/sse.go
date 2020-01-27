@@ -146,6 +146,11 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	response, ok := h.streamAdapter.GetResponse(w, r)
+	if !ok {
+		return
+	}
+
 	responsesChan := make(chan interface{})
 
 	go func() {
@@ -153,11 +158,6 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 			h.logger.Trace("Closing SSE handler", nil)
 			close(responsesChan)
 		}()
-
-		response, ok := h.streamAdapter.GetResponse(w, r)
-		if !ok {
-			return
-		}
 
 		responsesChan <- response
 
