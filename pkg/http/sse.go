@@ -5,6 +5,7 @@ import (
 	"github.com/go-chi/render"
 	"github.com/pkg/errors"
 	"net/http"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -42,6 +43,7 @@ type SSERouter struct {
 type SSERouterConfig struct {
 	UpstreamSubscriber message.Subscriber
 	ErrorHandler       HandleErrorFunc
+	KeepAliveTimeout   time.Duration
 }
 
 func (c *SSERouterConfig) setDefaults() {
@@ -163,19 +165,22 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 		h.logger.Trace("Listening for messages", nil)
 
-		for msg := range messages {
+		select {
+		case msg := <-messages:
 			msg.Ack()
 
 			response, ok := h.processMessage(w, r, msg)
 			if ok {
 				responsesChan <- response
 			}
+		case <-time.After(h.config.KeepAliveTimeout):
+			responsesChan <- render.EventStreamKeepAlive
+		}
 
-			select {
-			case <-r.Context().Done():
-				return
-			default:
-			}
+		select {
+		case <-r.Context().Done():
+			return
+		default:
 		}
 	}()
 
