@@ -184,7 +184,7 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 					responsesChan <- response
 				}
 			case <-keepalive:
-				responsesChan <- render.EventStreamKeepAlive
+				responsesChan <- keepaliveComment{}
 			case <-r.Context().Done():
 				return
 			}
@@ -203,4 +203,10 @@ func (h sseHandler) processMessage(w http.ResponseWriter, r *http.Request, msg *
 	h.logger.Trace("Received valid message", watermill.LogFields{"uuid": msg.UUID})
 
 	return h.streamAdapter.GetResponse(w, r)
+}
+
+type keepaliveComment struct{}
+
+func (k keepaliveComment) Comment() string {
+	return "keepalive"
 }
