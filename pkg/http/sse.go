@@ -165,22 +165,29 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 		h.logger.Trace("Listening for messages", nil)
 
-		select {
-		case msg := <-messages:
-			msg.Ack()
+		forever := make(chan time.Time)
 
-			response, ok := h.processMessage(w, r, msg)
-			if ok {
-				responsesChan <- response
+		for {
+			var keepalive <-chan time.Time
+			if h.config.KeepAliveTimeout > 0 {
+				keepalive = time.After(h.config.KeepAliveTimeout)
+			} else {
+				keepalive = forever
 			}
-		case <-time.After(h.config.KeepAliveTimeout):
-			responsesChan <- render.EventStreamKeepAlive
-		}
 
-		select {
-		case <-r.Context().Done():
-			return
-		default:
+			select {
+			case msg := <-messages:
+				msg.Ack()
+
+				response, ok := h.processMessage(w, r, msg)
+				if ok {
+					responsesChan <- response
+				}
+			case <-keepalive:
+				responsesChan <- render.EventStreamKeepAlive
+			case <-r.Context().Done():
+				return
+			}
 		}
 	}()
 
