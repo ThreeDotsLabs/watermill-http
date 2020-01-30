@@ -184,7 +184,7 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 					responsesChan <- response
 				}
 			case <-keepalive:
-				responsesChan <- keepaliveComment{}
+				responsesChan <- keepaliveEvent{}
 			case <-r.Context().Done():
 				return
 			}
@@ -205,8 +205,12 @@ func (h sseHandler) processMessage(w http.ResponseWriter, r *http.Request, msg *
 	return h.streamAdapter.GetResponse(w, r)
 }
 
-type keepaliveComment struct{}
+type keepaliveEvent struct{}
 
-func (k keepaliveComment) Comment() string {
+func (k keepaliveEvent) Event() string {
 	return "keepalive"
+}
+
+func (k keepaliveEvent) Data() interface{} {
+	return ""
 }

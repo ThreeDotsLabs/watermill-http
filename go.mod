@@ -8,6 +8,6 @@ require (
 	github.com/stretchr/testify v1.3.0
 )
 
-replace github.com/go-chi/render => github.com/m110/render v1.0.2-0.20200129133022-b0bf9bbedcb9
+replace github.com/go-chi/render => github.com/m110/render v1.0.2-0.20200130091354-901b7a75c715
 
 go 1.13
