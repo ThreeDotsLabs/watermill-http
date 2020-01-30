@@ -212,5 +212,5 @@ func (k keepaliveEvent) Event() string {
 }
 
 func (k keepaliveEvent) Data() interface{} {
-	return ""
+	return map[string]string{}
 }
