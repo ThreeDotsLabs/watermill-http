@@ -151,6 +151,9 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Disable proxy buffering for stream responses
+	w.Header().Set("X-Accel-Buffering", "no")
+
 	responsesChan := make(chan interface{})
 
 	go func() {
