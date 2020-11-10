@@ -116,10 +116,6 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 	s.config.Router.Post(url, func(w http.ResponseWriter, r *http.Request) {
 		msg, err := s.config.UnmarshalMessageFunc(url, r)
 
-		ctx, cancelCtx := context.WithCancel(ctx)
-		msg.SetContext(ctx)
-		defer cancelCtx()
-
 		if err != nil {
 			s.logger.Info("Cannot unmarshal message", baseLogFields.Add(watermill.LogFields{"err": err}))
 			w.WriteHeader(http.StatusBadRequest)
@@ -130,6 +126,11 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+
+		ctx, cancelCtx := context.WithCancel(ctx)
+		msg.SetContext(ctx)
+		defer cancelCtx()
+
 		logFields := baseLogFields.Add(watermill.LogFields{"message_uuid": msg.UUID})
 
 		s.logger.Trace("Sending msg", logFields)

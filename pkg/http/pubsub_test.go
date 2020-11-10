@@ -3,6 +3,7 @@ package http_test
 import (
 	"context"
 	"fmt"
+	nethttp "net/http"
 	"testing"
 	"time"
 
@@ -65,16 +66,31 @@ func TestHttpPubSub(t *testing.T) {
 
 	waitForHTTP(t, sub, time.Second*10)
 
-	receivedMessages := make(chan message.Messages)
+	t.Run("publish a message with invalid metadata", func(t *testing.T) {
+		req, err := nethttp.NewRequest(nethttp.MethodPost, fmt.Sprintf("http://%s/test", sub.Addr()), nil)
+		require.NoError(t, err)
 
-	go func() {
-		received, _ := subscriber.BulkRead(msgs, 100, time.Second*10)
-		receivedMessages <- received
-	}()
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(http.HeaderMetadata, "invalid_metadata")
 
-	publishedMessages := tests.PublishSimpleMessages(t, 100, pub, fmt.Sprintf("http://%s/test", sub.Addr()))
+		resp, err := nethttp.DefaultClient.Do(req)
+		require.NoError(t, err)
 
-	tests.AssertAllMessagesReceived(t, publishedMessages, <-receivedMessages)
+		require.Equal(t, nethttp.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("publish correct simple messages", func(t *testing.T) {
+		receivedMessages := make(chan message.Messages)
+
+		go func() {
+			received, _ := subscriber.BulkRead(msgs, 100, time.Second*10)
+			receivedMessages <- received
+		}()
+
+		publishedMessages := tests.PublishSimpleMessages(t, 100, pub, fmt.Sprintf("http://%s/test", sub.Addr()))
+
+		tests.AssertAllMessagesReceived(t, publishedMessages, <-receivedMessages)
+	})
 }
 
 func waitForHTTP(t *testing.T, sub *http.Subscriber, timeoutTime time.Duration) {
