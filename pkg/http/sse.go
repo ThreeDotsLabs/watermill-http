@@ -113,6 +113,11 @@ func (r SSERouter) Running() chan struct{} {
 	return r.fanOut.Running()
 }
 
+// Close stops the SSERouter.
+func (r SSERouter) Close() error {
+	return r.fanOut.Close()
+}
+
 type sseHandler struct {
 	subscriber    message.Subscriber
 	topic         string
