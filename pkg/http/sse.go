@@ -21,7 +21,7 @@ type StreamAdapter interface {
 	// Typically this involves checking some kind of model ID extracted from the `msg`.
 	// The response is sent to the client only if `ok` is true.
 	// Any errors that occur should be either:
-	// 	  1) logged and skipped, returning (nil, false)
+	//    1) logged and skipped, returning (nil, false)
 	//    2) sent back to the client, returning (errorStruct, true)
 	NextEvent(r *http.Request, msg *message.Message) (response interface{}, ok bool)
 }
