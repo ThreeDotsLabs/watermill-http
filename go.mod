@@ -1,5 +1,7 @@
 module github.com/ThreeDotsLabs/watermill-http
 
+go 1.16
+
 require (
 	github.com/ThreeDotsLabs/watermill v1.1.0
 	github.com/go-chi/chi v4.0.2+incompatible
