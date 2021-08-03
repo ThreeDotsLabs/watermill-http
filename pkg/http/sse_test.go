@@ -25,10 +25,11 @@ import (
 
 const (
 	notExistingID = "not-existing-id"
+	delayedID     = "delayed-id"
 )
 
 func TestSSE(t *testing.T) {
-	pubsub := gochannel.NewGoChannel(gochannel.Config{}, watermill.NewStdLogger(true, true))
+	pubsub := gochannel.NewGoChannel(gochannel.Config{}, watermill.NopLogger{})
 
 	sseRouter, err := http.NewSSERouter(http.SSERouterConfig{
 		UpstreamSubscriber: pubsub,
@@ -164,35 +165,39 @@ func TestSSE(t *testing.T) {
 	})
 
 	t.Run("event_stream_updated_after_context_closed", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		responses := newSSERequest(t, ctx, server.URL+"/posts/"+postID)
+		responses := newSSERequest(t, ctx, server.URL+"/posts/"+delayedID)
 
-		response := <-responses
+		response, ok := <-responses
+		require.True(t, ok)
 		post := Post{}
 		err = json.Unmarshal(response, &post)
 		require.NoError(t, err)
-		require.Equal(t, postID, post.ID)
+		require.Equal(t, delayedID, post.ID)
 
-		// Publish an event
-		payload, err := json.Marshal(PostUpdated{ID: postID})
+		payload, err := json.Marshal(PostUpdated{ID: delayedID})
 		require.NoError(t, err)
 
 		msg := message.NewMessage(watermill.NewUUID(), payload)
 		err = pubsub.Publish(postUpdatedTopic, msg)
 		require.NoError(t, err)
 
-		// Wait until All() starts processing
+		// Wait until ByID() starts processing
 		time.Sleep(time.Millisecond * 100)
 
 		cancel()
 
-		// Wait until All() processed
+		// Wait until ByID() finishes
 		time.Sleep(time.Millisecond * 150)
 
-		response = <-responses
-		require.Nilf(t, response, "should receive no update, got %s", string(response))
+		select {
+		case response, ok = <-responses:
+			require.False(t, ok)
+			require.Nilf(t, response, "should receive no update, got %s", string(response))
+		default:
+		}
 	})
 }
 
@@ -339,6 +344,10 @@ func (p postsRepositoryMock) ByID(id string) (Post, error) {
 		return Post{}, errors.New("post doesn't exist")
 	}
 
+	if id == delayedID {
+		time.Sleep(time.Millisecond * 200)
+	}
+
 	return Post{
 		ID:      id,
 		Content: "some content",
@@ -346,8 +355,6 @@ func (p postsRepositoryMock) ByID(id string) (Post, error) {
 }
 
 func (p postsRepositoryMock) All() ([]Post, error) {
-	time.Sleep(time.Millisecond * 200)
-
 	return []Post{
 		{
 			ID:      "1",
