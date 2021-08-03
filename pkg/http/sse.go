@@ -174,7 +174,11 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 		for {
 			select {
-			case msg := <-messages:
+			case msg, ok := <-messages:
+				if !ok {
+					return
+				}
+
 				msg.Ack()
 
 				nextEvent, ok := h.streamAdapter.NextEvent(r, msg)
