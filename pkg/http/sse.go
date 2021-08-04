@@ -182,6 +182,13 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 				msg.Ack()
 
 				nextEvent, ok := h.streamAdapter.NextEvent(r, msg)
+
+				select {
+				case <-r.Context().Done():
+					return
+				default:
+				}
+
 				if ok {
 					h.logger.Trace("Stream responding on message", watermill.LogFields{"uuid": msg.UUID})
 					responsesChan <- nextEvent
