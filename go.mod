@@ -1,4 +1,4 @@
-module github.com/ThreeDotsLabs/watermill-http
+module github.com/ThreeDotsLabs/watermill-http/v2
 
 go 1.16
 
