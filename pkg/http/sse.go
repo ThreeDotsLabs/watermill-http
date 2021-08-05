@@ -2,9 +2,10 @@ package http
 
 import (
 	"context"
+	"net/http"
+
 	"github.com/go-chi/render"
 	"github.com/pkg/errors"
-	"net/http"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -12,12 +13,17 @@ import (
 )
 
 type StreamAdapter interface {
-	// GetResponse returns the response to be sent back to client.
-	// Any errors that occur should be handled and written to `w`, returning false as `ok`.
-	GetResponse(w http.ResponseWriter, r *http.Request) (response interface{}, ok bool)
-	// Validate validates if the incoming message should be handled by this handler.
-	// Typically this involves checking some kind of model ID.
-	Validate(r *http.Request, msg *message.Message) (ok bool)
+	// InitialStreamResponse returns the first stream response to be sent back to client.
+	// Any errors that occur should be handled and written to `w`.
+	// Returning `ok` equal false ends processing the HTTP request.
+	InitialStreamResponse(w http.ResponseWriter, r *http.Request) (response interface{}, ok bool)
+	// NextStreamResponse returns the next stream response to be sent back to the client.
+	// Typically this involves checking some kind of model ID extracted from the `msg`.
+	// The response is sent to the client only if `ok` is true.
+	// Any errors that occur should be either:
+	//    1) logged and skipped, returning (nil, false)
+	//    2) sent back to the client, returning (errorStruct, true)
+	NextStreamResponse(r *http.Request, msg *message.Message) (response interface{}, ok bool)
 }
 
 type HandleErrorFunc func(w http.ResponseWriter, r *http.Request, err error)
@@ -136,7 +142,7 @@ func (h sseHandler) Handle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h sseHandler) handleGenericRequest(w http.ResponseWriter, r *http.Request) {
-	response, ok := h.streamAdapter.GetResponse(w, r)
+	response, ok := h.streamAdapter.InitialStreamResponse(w, r)
 	if !ok {
 		return
 	}
@@ -151,7 +157,7 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, ok := h.streamAdapter.GetResponse(w, r)
+	response, ok := h.streamAdapter.InitialStreamResponse(w, r)
 	if !ok {
 		return
 	}
@@ -171,32 +177,32 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 		h.logger.Trace("Listening for messages", nil)
 
-		for msg := range messages {
-			msg.Ack()
-
-			response, ok := h.processMessage(w, r, msg)
-			if ok {
-				responsesChan <- response
-			}
-
+		for {
 			select {
+			case msg, ok := <-messages:
+				if !ok {
+					return
+				}
+
+				msg.Ack()
+
+				nextResponse, ok := h.streamAdapter.NextStreamResponse(r, msg)
+
+				select {
+				case <-r.Context().Done():
+					return
+				default:
+				}
+
+				if ok {
+					h.logger.Trace("Stream responding on message", watermill.LogFields{"uuid": msg.UUID})
+					responsesChan <- nextResponse
+				}
 			case <-r.Context().Done():
 				return
-			default:
 			}
 		}
 	}()
 
 	render.Respond(w, r, responsesChan)
-}
-
-func (h sseHandler) processMessage(w http.ResponseWriter, r *http.Request, msg *message.Message) (interface{}, bool) {
-	ok := h.streamAdapter.Validate(r, msg)
-	if !ok {
-		return nil, false
-	}
-
-	h.logger.Trace("Received valid message", watermill.LogFields{"uuid": msg.UUID})
-
-	return h.streamAdapter.GetResponse(w, r)
 }

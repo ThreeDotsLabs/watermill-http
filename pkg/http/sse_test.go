@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -25,6 +26,7 @@ import (
 
 const (
 	notExistingID = "not-existing-id"
+	delayedID     = "delayed-id"
 )
 
 func TestSSE(t *testing.T) {
@@ -162,6 +164,42 @@ func TestSSE(t *testing.T) {
 		response = <-responses
 		require.Nil(t, response, "should receive no update")
 	})
+
+	t.Run("event_stream_updated_after_context_closed", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		responses := newSSERequest(t, ctx, server.URL+"/posts/"+delayedID)
+
+		response, ok := <-responses
+		require.True(t, ok)
+		post := Post{}
+		err = json.Unmarshal(response, &post)
+		require.NoError(t, err)
+		require.Equal(t, delayedID, post.ID)
+
+		payload, err := json.Marshal(PostUpdated{ID: delayedID})
+		require.NoError(t, err)
+
+		msg := message.NewMessage(watermill.NewUUID(), payload)
+		err = pubsub.Publish(postUpdatedTopic, msg)
+		require.NoError(t, err)
+
+		// Wait until ByID() starts processing
+		time.Sleep(time.Millisecond * 100)
+
+		cancel()
+
+		// Wait until ByID() finishes
+		time.Sleep(time.Millisecond * 150)
+
+		select {
+		case response, ok = <-responses:
+			assert.False(t, ok)
+			require.Emptyf(t, response, "should receive no update, got %s", string(response))
+		default:
+		}
+	})
 }
 
 func newSSERequest(t *testing.T, ctx context.Context, url string) chan []byte {
@@ -241,7 +279,7 @@ type postStreamAdapter struct {
 	}
 }
 
-func (s postStreamAdapter) GetResponse(w netHTTP.ResponseWriter, r *netHTTP.Request) (response interface{}, ok bool) {
+func (s postStreamAdapter) InitialStreamResponse(w netHTTP.ResponseWriter, r *netHTTP.Request) (response interface{}, ok bool) {
 	postID := chi.URLParam(r, "id")
 
 	post, err := s.postsRepository.ByID(postID)
@@ -253,17 +291,26 @@ func (s postStreamAdapter) GetResponse(w netHTTP.ResponseWriter, r *netHTTP.Requ
 	return post, true
 }
 
-func (s postStreamAdapter) Validate(r *netHTTP.Request, msg *message.Message) (ok bool) {
+func (s postStreamAdapter) NextStreamResponse(r *netHTTP.Request, msg *message.Message) (response interface{}, ok bool) {
 	postUpdated := PostUpdated{}
 
 	err := json.Unmarshal(msg.Payload, &postUpdated)
 	if err != nil {
-		return false
+		return nil, false
 	}
 
 	postID := chi.URLParam(r, "id")
 
-	return postUpdated.ID == postID
+	if postUpdated.ID != postID {
+		return nil, false
+	}
+
+	post, err := s.postsRepository.ByID(postID)
+	if err != nil {
+		return nil, false
+	}
+
+	return post, true
 }
 
 type allPostsStreamAdapter struct {
@@ -272,7 +319,7 @@ type allPostsStreamAdapter struct {
 	}
 }
 
-func (s allPostsStreamAdapter) GetResponse(w netHTTP.ResponseWriter, r *netHTTP.Request) (response interface{}, ok bool) {
+func (s allPostsStreamAdapter) InitialStreamResponse(w netHTTP.ResponseWriter, r *netHTTP.Request) (response interface{}, ok bool) {
 	posts, err := s.allPostsRepository.All()
 	if err != nil {
 		w.WriteHeader(500)
@@ -282,8 +329,13 @@ func (s allPostsStreamAdapter) GetResponse(w netHTTP.ResponseWriter, r *netHTTP.
 	return posts, true
 }
 
-func (s allPostsStreamAdapter) Validate(r *netHTTP.Request, msg *message.Message) (ok bool) {
-	return true
+func (s allPostsStreamAdapter) NextStreamResponse(r *netHTTP.Request, msg *message.Message) (response interface{}, ok bool) {
+	posts, err := s.allPostsRepository.All()
+	if err != nil {
+		return nil, false
+	}
+
+	return posts, true
 }
 
 type postsRepositoryMock struct{}
@@ -291,6 +343,10 @@ type postsRepositoryMock struct{}
 func (p postsRepositoryMock) ByID(id string) (Post, error) {
 	if id == notExistingID {
 		return Post{}, errors.New("post doesn't exist")
+	}
+
+	if id == delayedID {
+		time.Sleep(time.Millisecond * 200)
 	}
 
 	return Post{
