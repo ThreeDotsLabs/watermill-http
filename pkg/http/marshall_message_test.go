@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	watermill_http "github.com/ThreeDotsLabs/watermill-http/pkg/http"
+	watermill_http "github.com/ThreeDotsLabs/watermill-http/v2/pkg/http"
 	"github.com/ThreeDotsLabs/watermill/message"
 )
 
