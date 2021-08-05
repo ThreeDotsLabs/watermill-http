@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/stretchr/testify/require"
+	"github.com/tj/assert"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-http/pkg/http"
@@ -194,8 +195,8 @@ func TestSSE(t *testing.T) {
 
 		select {
 		case response, ok = <-responses:
-			require.False(t, ok)
-			require.Nilf(t, response, "should receive no update, got %s", string(response))
+			assert.False(t, ok)
+			require.Emptyf(t, response, "should receive no update, got %s", string(response))
 		default:
 		}
 	})
@@ -290,7 +291,7 @@ func (s postStreamAdapter) InitialStreamResponse(w netHTTP.ResponseWriter, r *ne
 	return post, true
 }
 
-func (s postStreamAdapter) NextEvent(r *netHTTP.Request, msg *message.Message) (response interface{}, ok bool) {
+func (s postStreamAdapter) NextStreamResponse(r *netHTTP.Request, msg *message.Message) (response interface{}, ok bool) {
 	postUpdated := PostUpdated{}
 
 	err := json.Unmarshal(msg.Payload, &postUpdated)
@@ -328,7 +329,7 @@ func (s allPostsStreamAdapter) InitialStreamResponse(w netHTTP.ResponseWriter, r
 	return posts, true
 }
 
-func (s allPostsStreamAdapter) NextEvent(r *netHTTP.Request, msg *message.Message) (response interface{}, ok bool) {
+func (s allPostsStreamAdapter) NextStreamResponse(r *netHTTP.Request, msg *message.Message) (response interface{}, ok bool) {
 	posts, err := s.allPostsRepository.All()
 	if err != nil {
 		return nil, false

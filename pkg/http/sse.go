@@ -17,13 +17,13 @@ type StreamAdapter interface {
 	// Any errors that occur should be handled and written to `w`.
 	// Returning `ok` equal false ends processing the HTTP request.
 	InitialStreamResponse(w http.ResponseWriter, r *http.Request) (response interface{}, ok bool)
-	// NextEvent returns the next stream response to be sent back to the client.
+	// NextStreamResponse returns the next stream response to be sent back to the client.
 	// Typically this involves checking some kind of model ID extracted from the `msg`.
 	// The response is sent to the client only if `ok` is true.
 	// Any errors that occur should be either:
 	//    1) logged and skipped, returning (nil, false)
 	//    2) sent back to the client, returning (errorStruct, true)
-	NextEvent(r *http.Request, msg *message.Message) (response interface{}, ok bool)
+	NextStreamResponse(r *http.Request, msg *message.Message) (response interface{}, ok bool)
 }
 
 type HandleErrorFunc func(w http.ResponseWriter, r *http.Request, err error)
@@ -181,7 +181,7 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 				msg.Ack()
 
-				nextEvent, ok := h.streamAdapter.NextEvent(r, msg)
+				nextResponse, ok := h.streamAdapter.NextStreamResponse(r, msg)
 
 				select {
 				case <-r.Context().Done():
@@ -191,7 +191,7 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 				if ok {
 					h.logger.Trace("Stream responding on message", watermill.LogFields{"uuid": msg.UUID})
-					responsesChan <- nextEvent
+					responsesChan <- nextResponse
 				}
 			case <-r.Context().Done():
 				return
