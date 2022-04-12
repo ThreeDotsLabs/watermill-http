@@ -66,6 +66,7 @@ type Subscriber struct {
 
 	logger watermill.LoggerAdapter
 
+	handlers           map[string][]http.HandlerFunc
 	outputChannels     []chan *message.Message
 	outputChannelsLock sync.Locker
 
@@ -91,6 +92,7 @@ func NewSubscriber(addr string, config SubscriberConfig, logger watermill.Logger
 		logger:             logger,
 		outputChannels:     make([]chan *message.Message, 0),
 		outputChannelsLock: &sync.Mutex{},
+		handlers:           make(map[string][]http.HandlerFunc),
 	}, nil
 }
 
@@ -113,7 +115,7 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 		url = "/" + url
 	}
 
-	s.config.Router.Post(url, func(w http.ResponseWriter, r *http.Request) {
+	s.handlers[url] = append(s.handlers[url], func(w http.ResponseWriter, r *http.Request) {
 		msg, err := s.config.UnmarshalMessageFunc(url, r)
 
 		if err != nil {
@@ -147,6 +149,12 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 		case <-r.Context().Done():
 			s.logger.Info("Request stopped without ACK received", logFields)
 			w.WriteHeader(http.StatusInternalServerError)
+		}
+	})
+
+	s.config.Router.Post(url, func(w http.ResponseWriter, r *http.Request) {
+		for _, handler := range s.handlers[url] {
+			handler(w, r)
 		}
 	})
 
