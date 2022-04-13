@@ -89,7 +89,7 @@ func NewSubscriber(addr string, config SubscriberConfig, logger watermill.Logger
 		config:             config,
 		server:             s,
 		logger:             logger,
-		outputChannels:     make(map[string][]chan *message.Message, 0),
+		outputChannels:     make(map[string][]chan *message.Message),
 		outputChannelsLock: &sync.Mutex{},
 	}, nil
 }
@@ -141,25 +141,19 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 
 			m.SetContext(ctx)
 
-			s.logger.Trace("Sending msg", logFields)
+			s.logger.Trace("Sending msg", logFields.Add(watermill.LogFields{"index": index}))
 			channel <- m
-			s.logger.Trace("Waiting for ACK", logFields)
+			s.logger.Trace("Waiting for ACK", logFields.Add(watermill.LogFields{"index": index}))
 
 			select {
 			case <-m.Acked():
-				s.logger.Trace("Message acknowledged", logFields.Add(watermill.LogFields{
-					"index": index,
-				}))
+				s.logger.Trace("Message acknowledged", logFields.Add(watermill.LogFields{"index": index}))
 				acked++
 			case <-m.Nacked():
-				s.logger.Trace("Message nacked", logFields.Add(watermill.LogFields{
-					"index": index,
-				}))
+				s.logger.Trace("Message nacked", logFields.Add(watermill.LogFields{"index": index}))
 				nacked++
 			case <-r.Context().Done():
-				s.logger.Info("Request stopped without ACK received", logFields.Add(watermill.LogFields{
-					"index": index,
-				}))
+				s.logger.Info("Request stopped without ACK received", logFields.Add(watermill.LogFields{"index": index}))
 				cancelled++
 			}
 		}
