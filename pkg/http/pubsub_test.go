@@ -62,7 +62,9 @@ func TestHttpPubSub(t *testing.T) {
 	msgs, err := sub.Subscribe(context.Background(), "/test")
 	require.NoError(t, err)
 
-	go sub.StartHTTPServer()
+	go func() {
+		_ = sub.StartHTTPServer()
+	}()
 
 	waitForHTTP(t, sub, time.Second*10)
 
