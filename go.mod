@@ -1,6 +1,6 @@
 module github.com/ThreeDotsLabs/watermill-http/v2
 
-go 1.16
+go 1.18
 
 require (
 	github.com/ThreeDotsLabs/watermill v1.2.0

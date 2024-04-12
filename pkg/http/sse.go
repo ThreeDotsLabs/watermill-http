@@ -48,15 +48,20 @@ type SSERouter struct {
 type SSERouterConfig struct {
 	UpstreamSubscriber message.Subscriber
 	ErrorHandler       HandleErrorFunc
+	Marshaler          SSEMarshaler
 }
 
 func (c *SSERouterConfig) setDefaults() {
 	if c.ErrorHandler == nil {
 		c.ErrorHandler = DefaultErrorHandler
 	}
+
+	if c.Marshaler == nil {
+		c.Marshaler = JSONSSEMarshaler{}
+	}
 }
 
-func (c SSERouterConfig) validate() error {
+func (c *SSERouterConfig) validate() error {
 	if c.UpstreamSubscriber == nil {
 		return errors.New("upstream subscriber is nil")
 	}
@@ -204,5 +209,8 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	render.Respond(w, r, responsesChan)
+	responder := DefaultSSEResponder{
+		marshaler: h.config.Marshaler,
+	}
+	responder.Respond(w, r, responsesChan)
 }
