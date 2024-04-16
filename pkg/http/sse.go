@@ -214,3 +214,46 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	}
 	responder.Respond(w, r, responsesChan)
 }
+
+type ResponseFunc[T any] func(r *http.Request) (response T, err error)
+type ValidFunc func(r *http.Request, msg *message.Message) (ok bool)
+
+type DefaultStreamAdapter[T any] struct {
+	responseFunc ResponseFunc[T]
+	validFunc    ValidFunc
+}
+
+func NewDefaultStreamAdapter[T any](
+	responseFunc ResponseFunc[T],
+	validFunc ValidFunc,
+) DefaultStreamAdapter[T] {
+	return DefaultStreamAdapter[T]{
+		responseFunc: responseFunc,
+		validFunc:    validFunc,
+	}
+}
+
+func (d DefaultStreamAdapter[T]) InitialStreamResponse(w http.ResponseWriter, r *http.Request) (response T, ok bool) {
+	resp, err := d.responseFunc(r)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		var empty T
+		return empty, false
+	}
+
+	return resp, true
+}
+
+func (d DefaultStreamAdapter[T]) NextStreamResponse(r *http.Request, msg *message.Message) (response T, ok bool) {
+	var empty T
+	if !d.validFunc(r, msg) {
+		return empty, false
+	}
+
+	resp, err := d.responseFunc(r)
+	if err != nil {
+		return empty, false
+	}
+
+	return resp, true
+}

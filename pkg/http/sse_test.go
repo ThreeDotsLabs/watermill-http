@@ -48,6 +48,33 @@ func TestSSE(t *testing.T) {
 		postsRepository: postsRepositoryMock{},
 	})
 
+	postStreamAdapterFunc := http.NewDefaultStreamAdapter(
+		func(r *netHTTP.Request) (response Post, err error) {
+			postID := chi.URLParam(r, "id")
+
+			post, err := postsRepositoryMock{}.ByID(postID)
+			if err != nil {
+				return Post{}, err
+			}
+
+			return post, nil
+		},
+		func(r *netHTTP.Request, msg *message.Message) (ok bool) {
+			postUpdated := PostUpdated{}
+
+			err := json.Unmarshal(msg.Payload, &postUpdated)
+			if err != nil {
+				return false
+			}
+
+			postID := chi.URLParam(r, "id")
+
+			return postUpdated.ID == postID
+		},
+	)
+
+	_ = postStreamAdapterFunc
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
