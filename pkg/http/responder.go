@@ -122,14 +122,19 @@ func (d DefaultSSEResponder) channelEventStream(w http.ResponseWriter, r *http.R
 				}
 			}
 
-			event, err := d.marshaler.Marshal(ctx, v)
-			if err != nil {
-				_, _ = w.Write([]byte(fmt.Sprintf("event: error\ndata: {\"error\":\"%v\"}\n\n", err)))
-				if f, ok := w.(http.Flusher); ok {
-					f.Flush()
+			event, ok := v.(ServerSentEvent)
+			if !ok {
+				var err error
+				event, err = d.marshaler.Marshal(ctx, v)
+				if err != nil {
+					_, _ = w.Write([]byte(fmt.Sprintf("event: error\ndata: {\"error\":\"%v\"}\n\n", err)))
+					if f, ok := w.(http.Flusher); ok {
+						f.Flush()
+					}
+					continue
 				}
-				continue
 			}
+
 			_, _ = w.Write([]byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event.Event, event.Data)))
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()

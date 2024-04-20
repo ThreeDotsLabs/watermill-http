@@ -215,26 +215,24 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	responder.Respond(w, r, responsesChan)
 }
 
-type ResponseFunc[T any] func(r *http.Request) (response T, err error)
+type OneModelResponseFunc[T any] func(r *http.Request) (response T, err error)
+type EventsResponseFunc[T any] func(r *http.Request, msg *message.Message) (response T, err error)
 type ValidFunc func(r *http.Request, msg *message.Message) (ok bool)
 
-type DefaultStreamAdapter[T any] struct {
-	responseFunc ResponseFunc[T]
-	validFunc    ValidFunc
+type OneModelStreamAdapter[T any] struct {
+	responseFunc OneModelResponseFunc[T]
 }
 
-func NewDefaultStreamAdapter[T any](
-	responseFunc ResponseFunc[T],
-	validFunc ValidFunc,
-) DefaultStreamAdapter[T] {
-	return DefaultStreamAdapter[T]{
+func NewOneModelStreamAdapter[T any](
+	responseFunc OneModelResponseFunc[T],
+) OneModelStreamAdapter[T] {
+	return OneModelStreamAdapter[T]{
 		responseFunc: responseFunc,
-		validFunc:    validFunc,
 	}
 }
 
-func (d DefaultStreamAdapter[T]) InitialStreamResponse(w http.ResponseWriter, r *http.Request) (response T, ok bool) {
-	resp, err := d.responseFunc(r)
+func (a OneModelStreamAdapter[T]) InitialStreamResponse(w http.ResponseWriter, r *http.Request) (response T, ok bool) {
+	resp, err := a.responseFunc(r)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		var empty T
@@ -244,14 +242,37 @@ func (d DefaultStreamAdapter[T]) InitialStreamResponse(w http.ResponseWriter, r 
 	return resp, true
 }
 
-func (d DefaultStreamAdapter[T]) NextStreamResponse(r *http.Request, msg *message.Message) (response T, ok bool) {
-	var empty T
-	if !d.validFunc(r, msg) {
+func (a OneModelStreamAdapter[T]) NextStreamResponse(r *http.Request, msg *message.Message) (response T, ok bool) {
+	resp, err := a.responseFunc(r)
+	if err != nil {
+		var empty T
 		return empty, false
 	}
 
-	resp, err := d.responseFunc(r)
+	return resp, true
+}
+
+type EventsStreamAdapter[T any] struct {
+	responseFunc EventsResponseFunc[T]
+}
+
+func NewEventsStreamAdapter[T any](
+	responseFunc EventsResponseFunc[T],
+) EventsStreamAdapter[T] {
+	return EventsStreamAdapter[T]{
+		responseFunc: responseFunc,
+	}
+}
+
+func (a EventsStreamAdapter[T]) InitialStreamResponse(w http.ResponseWriter, r *http.Request) (response T, ok bool) {
+	var empty T
+	return empty, true
+}
+
+func (a EventsStreamAdapter[T]) NextStreamResponse(r *http.Request, msg *message.Message) (response T, ok bool) {
+	resp, err := a.responseFunc(r, msg)
 	if err != nil {
+		var empty T
 		return empty, false
 	}
 

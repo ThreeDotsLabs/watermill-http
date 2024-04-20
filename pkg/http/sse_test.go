@@ -48,7 +48,7 @@ func TestSSE(t *testing.T) {
 		postsRepository: postsRepositoryMock{},
 	})
 
-	postStreamAdapterFunc := http.NewDefaultStreamAdapter(
+	postStreamAdapterFunc := http.NewOneModelStreamAdapter(
 		func(r *netHTTP.Request) (response Post, err error) {
 			postID := chi.URLParam(r, "id")
 
