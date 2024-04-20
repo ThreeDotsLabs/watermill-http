@@ -1,8 +1,6 @@
 package http
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -11,59 +9,23 @@ import (
 	"github.com/go-chi/render"
 )
 
-// Respond handles streaming JSON and XML responses, automatically setting the
-// Content-Type based on request headers. It will default to a JSON response.
-
-type ServerSentEvent struct {
-	Event string
-	Data  []byte
-}
-
-type SSEMarshaler interface {
-	Marshal(ctx context.Context, payload any) (ServerSentEvent, error)
-}
-
-type JSONSSEMarshaler struct{}
-
-func (j JSONSSEMarshaler) Marshal(ctx context.Context, payload any) (ServerSentEvent, error) {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return ServerSentEvent{}, err
-	}
-
-	return ServerSentEvent{
-		Event: "data",
-		Data:  data,
-	}, nil
-}
-
-type BytesSSEMarshaler struct{}
-
-func (b BytesSSEMarshaler) Marshal(ctx context.Context, payload any) (ServerSentEvent, error) {
-	payloadStr := fmt.Sprint(payload)
-
-	data := strings.Join(strings.Split(payloadStr, "\n"), "\ndata: ")
-
-	return ServerSentEvent{
-		Event: "data",
-		Data:  []byte(data),
-	}, nil
-}
-
-type DefaultSSEResponder struct {
+type sseResponder struct {
 	marshaler SSEMarshaler
 }
 
-func (d DefaultSSEResponder) Respond(w http.ResponseWriter, r *http.Request, v interface{}) {
+// Respond handles streaming JSON and XML responses, automatically setting the
+// Content-Type based on request headers.
+// Based on go-chi/render.
+func (s sseResponder) Respond(w http.ResponseWriter, r *http.Request, v interface{}) {
 	if v != nil {
 		switch reflect.TypeOf(v).Kind() {
 		case reflect.Chan:
 			switch render.GetAcceptedContentType(r) {
 			case render.ContentTypeEventStream:
-				d.channelEventStream(w, r, v)
+				s.channelEventStream(w, r, v)
 				return
 			default:
-				v = d.channelIntoSlice(w, r, v)
+				v = s.channelIntoSlice(w, r, v)
 			}
 		}
 	}
@@ -79,13 +41,16 @@ func (d DefaultSSEResponder) Respond(w http.ResponseWriter, r *http.Request, v i
 	}
 }
 
-func (d DefaultSSEResponder) channelEventStream(w http.ResponseWriter, r *http.Request, v interface{}) {
+func (s sseResponder) channelEventStream(w http.ResponseWriter, r *http.Request, v interface{}) {
 	if reflect.TypeOf(v).Kind() != reflect.Chan {
 		panic(fmt.Sprintf("render: event stream expects a channel, not %v", reflect.TypeOf(v).Kind()))
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
+
+	// Disable proxy buffering for stream responses
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	if r.ProtoMajor == 1 {
 		// An endpoint MUST NOT generate an HTTP/2 message containing connection-specific header fields.
@@ -125,7 +90,7 @@ func (d DefaultSSEResponder) channelEventStream(w http.ResponseWriter, r *http.R
 			event, ok := v.(ServerSentEvent)
 			if !ok {
 				var err error
-				event, err = d.marshaler.Marshal(ctx, v)
+				event, err = s.marshaler.Marshal(ctx, v)
 				if err != nil {
 					_, _ = w.Write([]byte(fmt.Sprintf("event: error\ndata: {\"error\":\"%v\"}\n\n", err)))
 					if f, ok := w.(http.Flusher); ok {
@@ -135,7 +100,9 @@ func (d DefaultSSEResponder) channelEventStream(w http.ResponseWriter, r *http.R
 				}
 			}
 
-			_, _ = w.Write([]byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event.Event, event.Data)))
+			data := strings.Join(strings.Split(string(event.Data), "\n"), "\ndata: ")
+
+			_, _ = w.Write([]byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event.Event, data)))
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
 			}
@@ -144,7 +111,7 @@ func (d DefaultSSEResponder) channelEventStream(w http.ResponseWriter, r *http.R
 }
 
 // channelIntoSlice buffers channel data into a slice.
-func (d DefaultSSEResponder) channelIntoSlice(w http.ResponseWriter, r *http.Request, from interface{}) interface{} {
+func (s sseResponder) channelIntoSlice(w http.ResponseWriter, r *http.Request, from interface{}) interface{} {
 	ctx := r.Context()
 
 	var to []interface{}

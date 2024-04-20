@@ -167,9 +167,6 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Disable proxy buffering for stream responses
-	w.Header().Set("X-Accel-Buffering", "no")
-
 	responsesChan := make(chan interface{})
 
 	go func() {
@@ -209,72 +206,8 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	responder := DefaultSSEResponder{
+	responder := sseResponder{
 		marshaler: h.config.Marshaler,
 	}
 	responder.Respond(w, r, responsesChan)
-}
-
-type OneModelResponseFunc[T any] func(r *http.Request) (response T, err error)
-type EventsResponseFunc[T any] func(r *http.Request, msg *message.Message) (response T, err error)
-type ValidFunc func(r *http.Request, msg *message.Message) (ok bool)
-
-type OneModelStreamAdapter[T any] struct {
-	responseFunc OneModelResponseFunc[T]
-}
-
-func NewOneModelStreamAdapter[T any](
-	responseFunc OneModelResponseFunc[T],
-) OneModelStreamAdapter[T] {
-	return OneModelStreamAdapter[T]{
-		responseFunc: responseFunc,
-	}
-}
-
-func (a OneModelStreamAdapter[T]) InitialStreamResponse(w http.ResponseWriter, r *http.Request) (response T, ok bool) {
-	resp, err := a.responseFunc(r)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		var empty T
-		return empty, false
-	}
-
-	return resp, true
-}
-
-func (a OneModelStreamAdapter[T]) NextStreamResponse(r *http.Request, msg *message.Message) (response T, ok bool) {
-	resp, err := a.responseFunc(r)
-	if err != nil {
-		var empty T
-		return empty, false
-	}
-
-	return resp, true
-}
-
-type EventsStreamAdapter[T any] struct {
-	responseFunc EventsResponseFunc[T]
-}
-
-func NewEventsStreamAdapter[T any](
-	responseFunc EventsResponseFunc[T],
-) EventsStreamAdapter[T] {
-	return EventsStreamAdapter[T]{
-		responseFunc: responseFunc,
-	}
-}
-
-func (a EventsStreamAdapter[T]) InitialStreamResponse(w http.ResponseWriter, r *http.Request) (response T, ok bool) {
-	var empty T
-	return empty, true
-}
-
-func (a EventsStreamAdapter[T]) NextStreamResponse(r *http.Request, msg *message.Message) (response T, ok bool) {
-	resp, err := a.responseFunc(r, msg)
-	if err != nil {
-		var empty T
-		return empty, false
-	}
-
-	return resp, true
 }
