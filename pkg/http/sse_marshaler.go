@@ -31,7 +31,7 @@ func (j JSONSSEMarshaler) Marshal(ctx context.Context, payload any) (ServerSentE
 
 type StringSSEMarshaler struct{}
 
-func (b StringSSEMarshaler) Marshal(ctx context.Context, payload any) (ServerSentEvent, error) {
+func (s StringSSEMarshaler) Marshal(ctx context.Context, payload any) (ServerSentEvent, error) {
 	data := fmt.Sprint(payload)
 
 	return ServerSentEvent{

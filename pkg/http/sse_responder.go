@@ -9,13 +9,38 @@ import (
 	"github.com/go-chi/render"
 )
 
+/*
+   Code based on [go-chi/render](https://github.com/go-chi/render)
+
+   Original code copyright (c) 2016-Present https://github.com/go-chi authors
+   Modifications copyright (c) 2024 Three Dots Labs
+
+   MIT License
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy of
+   this software and associated documentation files (the "Software"), to deal in
+   the Software without restriction, including without limitation the rights to
+   use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+   the Software, and to permit persons to whom the Software is furnished to do so,
+   subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in all
+   copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+   FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+   COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+   IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 type sseResponder struct {
 	marshaler SSEMarshaler
 }
 
 // Respond handles streaming JSON and XML responses, automatically setting the
 // Content-Type based on request headers.
-// Based on go-chi/render.
 func (s sseResponder) Respond(w http.ResponseWriter, r *http.Request, v interface{}) {
 	if v != nil {
 		switch reflect.TypeOf(v).Kind() {
