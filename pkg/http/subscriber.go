@@ -139,14 +139,17 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 		s.logger.Trace("Waiting for ACK", logFields)
 		select {
 		case <-msg.Acked():
-			s.logger.Trace("Message acknowledged", logFields.Add(watermill.LogFields{"err": err}))
-			w.WriteHeader(http.StatusOK)
+			code := StatusCodeFromContext(msg.Context(), http.StatusOK)
+			s.logger.Trace("Message acknowledged", logFields.Add(watermill.LogFields{"err": err, "http_status_code": code}))
+			w.WriteHeader(code)
 		case <-msg.Nacked():
-			s.logger.Trace("Message nacked", logFields.Add(watermill.LogFields{"err": err}))
-			w.WriteHeader(http.StatusInternalServerError)
+			code := StatusCodeFromContext(msg.Context(), http.StatusInternalServerError)
+			s.logger.Trace("Message nacked", logFields.Add(watermill.LogFields{"err": err, "http_status_code": code}))
+			w.WriteHeader(code)
 		case <-r.Context().Done():
-			s.logger.Info("Request stopped without ACK received", logFields)
-			w.WriteHeader(http.StatusInternalServerError)
+			code := StatusCodeFromContext(msg.Context(), http.StatusInternalServerError)
+			s.logger.Info("Request stopped without ACK received", logFields.Add(watermill.LogFields{"http_status_code": code}))
+			w.WriteHeader(code)
 		}
 	})
 
