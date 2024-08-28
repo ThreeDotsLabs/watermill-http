@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"strings"
@@ -21,7 +20,7 @@ type UnmarshalMessageFunc func(topic string, request *http.Request) (*message.Me
 // DefaultUnmarshalMessageFunc retrieves the UUID and Metadata from request headers,
 // as encoded by DefaultMarshalMessageFunc.
 func DefaultUnmarshalMessageFunc(topic string, req *http.Request) (*message.Message, error) {
-	body, err := ioutil.ReadAll(req.Body)
+	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		return nil, err
 	}

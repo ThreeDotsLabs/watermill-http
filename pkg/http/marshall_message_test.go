@@ -2,7 +2,6 @@ package http_test
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"net/http"
 	"testing"
 
@@ -36,7 +35,7 @@ func TestDefaultMarshalMessageFunc(t *testing.T) {
 
 	assert.Equal(t, url, req.URL.String())
 
-	body, err := ioutil.ReadAll(req.Body)
+	body, err := io.ReadAll(req.Body)
 	require.NoError(t, err)
 	assert.Equal(t, msgPayload, body)
 
