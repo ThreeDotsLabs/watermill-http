@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 
