@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/ioutil"
 	netHTTP "net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,7 +74,7 @@ func TestSSE(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Equal(t, 200, resp.StatusCode)
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 
 		post := Post{}
