@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+    "io"
 	"net"
 	"net/http"
 	"strings"
