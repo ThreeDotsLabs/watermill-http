@@ -3,7 +3,7 @@ package http
 import (
 	"bytes"
 	"encoding/json"
-    "io"
+	"io"
 	"net/http"
 
 	"github.com/pkg/errors"
