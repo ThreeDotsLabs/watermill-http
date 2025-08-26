@@ -160,17 +160,17 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 
 		var code int
 
-		if (cancelled != 0) || (nacked != 0) || (acked == 0) {
+		if cancelled != 0 || nacked != 0 || acked == 0 {
 			code = StatusCodeFromContext(msg.Context(), http.StatusInternalServerError)
 		} else {
 			code = StatusCodeFromContext(msg.Context(), http.StatusOK)
 		}
 
 		s.logger.Trace("Messages processed", logFields.Add(watermill.LogFields{
-			"total":     len(channels),
-			"nacked":    nacked,
-			"acked":     acked,
-			"cancelled": cancelled,
+			"total":            len(channels),
+			"nacked":           nacked,
+			"acked":            acked,
+			"cancelled":        cancelled,
 			"http_status_code": code,
 		}))
 
