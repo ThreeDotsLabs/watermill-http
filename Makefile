@@ -1,5 +1,5 @@
 up:
-	docker-compose up
+
 
 test:
 	go test -parallel 20 ./...
@@ -18,6 +18,15 @@ test_stress:
 
 test_reconnect:
 	go test -tags=reconnect ./...
+
+test_codecov:
+	go test -coverprofile=coverage.out -covermode=atomic ./...
+
+wait:
+
+
+build:
+	go build ./...
 
 fmt:
 	go fmt ./...

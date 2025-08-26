@@ -62,7 +62,9 @@ func TestHttpPubSub(t *testing.T) {
 	msgs, err := sub.Subscribe(context.Background(), "/test")
 	require.NoError(t, err)
 
-	go sub.StartHTTPServer()
+	go func() {
+		_ = sub.StartHTTPServer()
+	}()
 
 	waitForHTTP(t, sub, time.Second*10)
 
@@ -90,6 +92,44 @@ func TestHttpPubSub(t *testing.T) {
 		publishedMessages := tests.PublishSimpleMessages(t, 100, pub, fmt.Sprintf("http://%s/test", sub.Addr()))
 
 		tests.AssertAllMessagesReceived(t, publishedMessages, <-receivedMessages)
+	})
+}
+
+func TestHttpSubStatusCode(t *testing.T) {
+	pub, sub := createPubSub(t)
+
+	defer func() {
+		require.NoError(t, pub.Close())
+		require.NoError(t, sub.Close())
+	}()
+
+	msgs, err := sub.Subscribe(context.Background(), "/test")
+	require.NoError(t, err)
+
+	go func() {
+		_ = sub.StartHTTPServer()
+	}()
+
+	waitForHTTP(t, sub, time.Second*10)
+
+	t.Run("response with custom http status code", func(t *testing.T) {
+		go func() {
+			select {
+			case <-time.After(time.Second * 10):
+				return
+			case msg := <-msgs:
+				http.SetResponseStatusCode(msg, nethttp.StatusForbidden)
+				msg.Nack()
+			}
+		}()
+
+		req, err := nethttp.NewRequest(nethttp.MethodPost, fmt.Sprintf("http://%s/test", sub.Addr()), nil)
+		require.NoError(t, err)
+
+		resp, err := nethttp.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		require.Equal(t, nethttp.StatusForbidden, resp.StatusCode)
 	})
 }
 

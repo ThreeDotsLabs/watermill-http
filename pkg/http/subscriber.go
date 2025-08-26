@@ -3,7 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -21,7 +21,7 @@ type UnmarshalMessageFunc func(topic string, request *http.Request) (*message.Me
 // DefaultUnmarshalMessageFunc retrieves the UUID and Metadata from request headers,
 // as encoded by DefaultMarshalMessageFunc.
 func DefaultUnmarshalMessageFunc(topic string, req *http.Request) (*message.Message, error) {
-	body, err := ioutil.ReadAll(req.Body)
+	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -158,18 +158,23 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 			}
 		}
 
-		s.logger.Trace("Messages send", logFields.Add(watermill.LogFields{
+		var code int
+
+		if (cancelled != 0) || (nacked != 0) || (acked == 0) {
+			code = StatusCodeFromContext(msg.Context(), http.StatusInternalServerError)
+		} else {
+			code = StatusCodeFromContext(msg.Context(), http.StatusOK)
+		}
+
+		s.logger.Trace("Messages processed", logFields.Add(watermill.LogFields{
 			"total":     len(channels),
 			"nacked":    nacked,
 			"acked":     acked,
 			"cancelled": cancelled,
+			"http_status_code": code,
 		}))
 
-		if (cancelled != 0) || (nacked != 0) || (acked == 0) {
-			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			w.WriteHeader(http.StatusOK)
-		}
+		w.WriteHeader(code)
 	})
 
 	return messages, nil
