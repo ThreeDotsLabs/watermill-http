@@ -9,6 +9,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message/subscriber"
 	"github.com/ThreeDotsLabs/watermill/pubsub/tests"
+	"github.com/go-chi/chi"
 
 	"github.com/ThreeDotsLabs/watermill/message"
 
@@ -21,18 +22,39 @@ import (
 func createPubSub(t *testing.T) (*http.Publisher, *http.Subscriber) {
 	logger := watermill.NewStdLogger(true, true)
 
+	subscriberConf := http.SubscriberConfig{
+		NewHTTPServerFunc: func(addr string, router chi.Router) *nethttp.Server {
+			protocols := &nethttp.Protocols{}
+			protocols.SetUnencryptedHTTP2(true)
+			return &nethttp.Server{
+				Addr:      addr,
+				Handler:   router,
+				Protocols: protocols,
+			}
+		},
+	}
 	// use any free port to allow parallel tests
-	sub, err := http.NewSubscriber(":0", http.SubscriberConfig{}, logger)
+	sub, err := http.NewSubscriber(":0", subscriberConf, logger)
 	require.NoError(t, err)
 
 	publisherConf := http.PublisherConfig{
 		MarshalMessageFunc: http.DefaultMarshalMessageFunc,
+		Client:             createClient(),
 	}
-
 	pub, err := http.NewPublisher(publisherConf, logger)
 	require.NoError(t, err)
 
 	return pub, sub
+}
+
+func createClient() *nethttp.Client {
+	protocols := &nethttp.Protocols{}
+	protocols.SetUnencryptedHTTP2(true)
+	return &nethttp.Client{
+		Transport: &nethttp.Transport{
+			Protocols: protocols,
+		},
+	}
 }
 
 func TestPublishSubscribe(t *testing.T) {
@@ -75,7 +97,7 @@ func TestHttpPubSub(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(http.HeaderMetadata, "invalid_metadata")
 
-		resp, err := nethttp.DefaultClient.Do(req)
+		resp, err := createClient().Do(req)
 		require.NoError(t, err)
 
 		require.Equal(t, nethttp.StatusBadRequest, resp.StatusCode)
@@ -126,7 +148,7 @@ func TestHttpSubStatusCode(t *testing.T) {
 		req, err := nethttp.NewRequest(nethttp.MethodPost, fmt.Sprintf("http://%s/test", sub.Addr()), nil)
 		require.NoError(t, err)
 
-		resp, err := nethttp.DefaultClient.Do(req)
+		resp, err := createClient().Do(req)
 		require.NoError(t, err)
 
 		require.Equal(t, nethttp.StatusForbidden, resp.StatusCode)

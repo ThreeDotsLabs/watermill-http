@@ -40,9 +40,16 @@ func DefaultUnmarshalMessageFunc(topic string, req *http.Request) (*message.Mess
 	return msg, nil
 }
 
+type NewHTTPServerFunc func(addr string, router chi.Router) *http.Server
+
+func DefaultNewHTTPServerFunc(addr string, router chi.Router) *http.Server {
+	return &http.Server{Addr: addr, Handler: router}
+}
+
 type SubscriberConfig struct {
 	Router               chi.Router
 	UnmarshalMessageFunc UnmarshalMessageFunc
+	NewHTTPServerFunc    NewHTTPServerFunc
 }
 
 func (s *SubscriberConfig) setDefaults() {
@@ -52,6 +59,10 @@ func (s *SubscriberConfig) setDefaults() {
 
 	if s.UnmarshalMessageFunc == nil {
 		s.UnmarshalMessageFunc = DefaultUnmarshalMessageFunc
+	}
+
+	if s.NewHTTPServerFunc == nil {
+		s.NewHTTPServerFunc = DefaultNewHTTPServerFunc
 	}
 }
 
@@ -79,7 +90,7 @@ type Subscriber struct {
 // logger is Watermill's logger.
 func NewSubscriber(addr string, config SubscriberConfig, logger watermill.LoggerAdapter) (*Subscriber, error) {
 	config.setDefaults()
-	s := &http.Server{Addr: addr, Handler: config.Router}
+	server := config.NewHTTPServerFunc(addr, config.Router)
 
 	if logger == nil {
 		logger = watermill.NopLogger{}
@@ -87,7 +98,7 @@ func NewSubscriber(addr string, config SubscriberConfig, logger watermill.Logger
 
 	return &Subscriber{
 		config:             config,
-		server:             s,
+		server:             server,
 		logger:             logger,
 		outputChannels:     make([]chan *message.Message, 0),
 		outputChannelsLock: &sync.Mutex{},
