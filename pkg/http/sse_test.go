@@ -219,7 +219,9 @@ func newSSERequest(t *testing.T, ctx context.Context, url string) chan []byte {
 
 	go func() {
 		defer close(responsesChan)
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		for {
 			line, err := br.ReadBytes('\n')

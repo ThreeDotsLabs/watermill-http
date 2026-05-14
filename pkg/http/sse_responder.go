@@ -117,7 +117,7 @@ func (s sseResponder) channelEventStream(w http.ResponseWriter, r *http.Request,
 				var err error
 				event, err = s.marshaler.Marshal(ctx, v)
 				if err != nil {
-					_, _ = w.Write([]byte(fmt.Sprintf("event: error\ndata: {\"error\":\"%v\"}\n\n", err)))
+					_, _ = fmt.Fprintf(w, "event: error\ndata: {\"error\":\"%v\"}\n\n", err)
 					if f, ok := w.(http.Flusher); ok {
 						f.Flush()
 					}
@@ -127,7 +127,7 @@ func (s sseResponder) channelEventStream(w http.ResponseWriter, r *http.Request,
 
 			data := strings.Join(strings.Split(string(event.Data), "\n"), "\ndata: ")
 
-			_, _ = w.Write([]byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event.Event, data)))
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Event, data)
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
 			}
@@ -176,7 +176,7 @@ var (
 
 func renderer(w http.ResponseWriter, r *http.Request, v render.Renderer) error {
 	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 
@@ -212,7 +212,7 @@ func renderer(w http.ResponseWriter, r *http.Request, v render.Renderer) error {
 
 func isNil(f reflect.Value) bool {
 	switch f.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return f.IsNil()
 	default:
 		return false
