@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -219,7 +219,9 @@ func newSSERequest(t *testing.T, ctx context.Context, url string) chan []byte {
 
 	go func() {
 		defer close(responsesChan)
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		for {
 			line, err := br.ReadBytes('\n')
