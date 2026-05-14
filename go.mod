@@ -6,7 +6,7 @@ toolchain go1.23.0
 
 require (
 	github.com/ThreeDotsLabs/watermill v1.3.7
-	github.com/go-chi/chi v4.1.2+incompatible
+	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-chi/render v1.0.3
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.9.0
