@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 	"github.com/pkg/errors"
 
@@ -167,6 +168,12 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// chi pools its *Context and resets it after ServeHTTP returns. Our
+	// goroutine outlives the handler in some paths (e.g. responder exiting
+	// on ctx.Done()), so a later request can race the goroutine's
+	// chi.URLParam calls on the reset Context. Detach a copy now.
+	streamReq := requestWithDetachedChiContext(r)
+
 	responsesChan := make(chan interface{})
 
 	go func() {
@@ -188,7 +195,7 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 				msg.Ack()
 
-				nextResponse, ok := h.streamAdapter.NextStreamResponse(r, msg)
+				nextResponse, ok := h.streamAdapter.NextStreamResponse(streamReq, msg)
 
 				select {
 				case <-r.Context().Done():
@@ -210,4 +217,25 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		marshaler: h.config.Marshaler,
 	}
 	responder.Respond(w, r, responsesChan)
+}
+
+// requestWithDetachedChiContext returns a copy of r whose context holds a
+// fresh *chi.Context populated from the request's routing context. Used to
+// safely access chi.URLParam from goroutines that may outlive ServeHTTP,
+// because chi pools and resets *chi.Context after the handler returns.
+func requestWithDetachedChiContext(r *http.Request) *http.Request {
+	rctx := chi.RouteContext(r.Context())
+	if rctx == nil {
+		return r
+	}
+
+	copied := chi.NewRouteContext()
+	copied.URLParams.Keys = append(copied.URLParams.Keys, rctx.URLParams.Keys...)
+	copied.URLParams.Values = append(copied.URLParams.Values, rctx.URLParams.Values...)
+	copied.RoutePatterns = append(copied.RoutePatterns, rctx.RoutePatterns...)
+	copied.RoutePath = rctx.RoutePath
+	copied.RouteMethod = rctx.RouteMethod
+	copied.Routes = rctx.Routes
+
+	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, copied))
 }
