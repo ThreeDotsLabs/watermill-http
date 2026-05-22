@@ -3,9 +3,9 @@ package http
 import (
 	"context"
 	"net/http"
+	"encoding/json"
+	"strings"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/render"
 	"github.com/pkg/errors"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -35,8 +35,13 @@ type defaultErrorResponse struct {
 
 // DefaultErrorHandler writes JSON error response along with Internal Server Error code (500).
 func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(500)
-	render.Respond(w, r, defaultErrorResponse{Error: err.Error()})
+	json.NewEncoder(w).Encode(defaultErrorResponse{Error: err.Error()})
+}
+
+func acceptsEventStream(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 }
 
 // SSERouter is a router handling Server-Sent Events.
@@ -139,11 +144,10 @@ type sseHandler struct {
 }
 
 func (h sseHandler) Handle(w http.ResponseWriter, r *http.Request) {
-	if render.GetAcceptedContentType(r) == render.ContentTypeEventStream {
+	if acceptsEventStream(r) {
 		h.handleEventStream(w, r)
 		return
 	}
-
 	h.handleGenericRequest(w, r)
 }
 
@@ -153,7 +157,12 @@ func (h sseHandler) handleGenericRequest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	render.Respond(w, r, response)
+	respondJSON(w, response)
+}
+
+func respondJSON(w http.ResponseWriter, v interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(v)
 }
 
 func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
@@ -167,12 +176,6 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
-	// chi pools its *Context and resets it after ServeHTTP returns. Our
-	// goroutine outlives the handler in some paths (e.g. responder exiting
-	// on ctx.Done()), so a later request can race the goroutine's
-	// chi.URLParam calls on the reset Context. Detach a copy now.
-	streamReq := requestWithDetachedChiContext(r)
 
 	responsesChan := make(chan interface{})
 
@@ -195,7 +198,7 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 				msg.Ack()
 
-				nextResponse, ok := h.streamAdapter.NextStreamResponse(streamReq, msg)
+				nextResponse, ok := h.streamAdapter.NextStreamResponse(r, msg)
 
 				select {
 				case <-r.Context().Done():
@@ -217,25 +220,4 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		marshaler: h.config.Marshaler,
 	}
 	responder.Respond(w, r, responsesChan)
-}
-
-// requestWithDetachedChiContext returns a copy of r whose context holds a
-// fresh *chi.Context populated from the request's routing context. Used to
-// safely access chi.URLParam from goroutines that may outlive ServeHTTP,
-// because chi pools and resets *chi.Context after the handler returns.
-func requestWithDetachedChiContext(r *http.Request) *http.Request {
-	rctx := chi.RouteContext(r.Context())
-	if rctx == nil {
-		return r
-	}
-
-	copied := chi.NewRouteContext()
-	copied.URLParams.Keys = append(copied.URLParams.Keys, rctx.URLParams.Keys...)
-	copied.URLParams.Values = append(copied.URLParams.Values, rctx.URLParams.Values...)
-	copied.RoutePatterns = append(copied.RoutePatterns, rctx.RoutePatterns...)
-	copied.RoutePath = rctx.RoutePath
-	copied.RouteMethod = rctx.RouteMethod
-	copied.Routes = rctx.Routes
-
-	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, copied))
 }

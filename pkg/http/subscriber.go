@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/pkg/errors"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -40,21 +39,21 @@ func DefaultUnmarshalMessageFunc(topic string, req *http.Request) (*message.Mess
 	return msg, nil
 }
 
-type NewHTTPServerFunc func(addr string, router chi.Router) *http.Server
+type NewHTTPServerFunc func(addr string, route http.Handler) *http.Server
 
-func DefaultNewHTTPServerFunc(addr string, router chi.Router) *http.Server {
+func DefaultNewHTTPServerFunc(addr string, router http.Handler) *http.Server {
 	return &http.Server{Addr: addr, Handler: router}
 }
 
 type SubscriberConfig struct {
-	Router               chi.Router
+	Router               *http.ServeMux
 	UnmarshalMessageFunc UnmarshalMessageFunc
 	NewHTTPServerFunc    NewHTTPServerFunc
 }
 
 func (s *SubscriberConfig) setDefaults() {
 	if s.Router == nil {
-		s.Router = chi.NewRouter()
+		s.Router = http.NewServeMux()
 	}
 
 	if s.UnmarshalMessageFunc == nil {
@@ -124,7 +123,7 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 		url = "/" + url
 	}
 
-	s.config.Router.Post(url, func(w http.ResponseWriter, r *http.Request) {
+	s.config.Router.Post("POST "+url, func(w http.ResponseWriter, r *http.Request) {
 		msg, err := s.config.UnmarshalMessageFunc(url, r)
 
 		if err != nil {
