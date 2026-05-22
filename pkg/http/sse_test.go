@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -57,9 +56,9 @@ func TestSSE(t *testing.T) {
 		}
 	}()
 
-	r := chi.NewRouter()
-	r.Get("/posts", allPostsHandler)
-	r.Get("/posts/{id}", postHandler)
+	r := netHTTP.NewServeMux()
+	r.HandleFunc("GET /posts", allPostsHandler)
+	r.HandleFunc("GET /posts/{id}", postHandler)
 
 	server := httptest.NewServer(r)
 	defer server.Close()
@@ -281,7 +280,7 @@ type postStreamAdapter struct {
 }
 
 func (s postStreamAdapter) InitialStreamResponse(w netHTTP.ResponseWriter, r *netHTTP.Request) (response interface{}, ok bool) {
-	postID := chi.URLParam(r, "id")
+	postID := r.PathValue("id")
 
 	post, err := s.postsRepository.ByID(postID)
 	if err != nil {
@@ -300,7 +299,7 @@ func (s postStreamAdapter) NextStreamResponse(r *netHTTP.Request, msg *message.M
 		return nil, false
 	}
 
-	postID := chi.URLParam(r, "id")
+	postID := r.PathValue("id")
 
 	if postUpdated.ID != postID {
 		return nil, false

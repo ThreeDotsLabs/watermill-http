@@ -9,7 +9,6 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message/subscriber"
 	"github.com/ThreeDotsLabs/watermill/pubsub/tests"
-	"github.com/go-chi/chi/v5"
 
 	"github.com/ThreeDotsLabs/watermill/message"
 
@@ -23,7 +22,7 @@ func createPubSub(t *testing.T) (*http.Publisher, *http.Subscriber) {
 	logger := watermill.NewStdLogger(true, true)
 
 	subscriberConf := http.SubscriberConfig{
-		NewHTTPServerFunc: func(addr string, router chi.Router) *nethttp.Server {
+		NewHTTPServerFunc: func(addr string, router nethttp.Handler) *nethttp.Server {
 			protocols := &nethttp.Protocols{}
 			protocols.SetUnencryptedHTTP2(true)
 			return &nethttp.Server{

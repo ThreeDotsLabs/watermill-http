@@ -123,7 +123,7 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 		url = "/" + url
 	}
 
-	s.config.Router.Post("POST "+url, func(w http.ResponseWriter, r *http.Request) {
+	s.config.Router.HandleFunc("POST "+url, func(w http.ResponseWriter, r *http.Request) {
 		msg, err := s.config.UnmarshalMessageFunc(url, r)
 
 		if err != nil {
