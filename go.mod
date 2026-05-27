@@ -4,6 +4,8 @@ go 1.25.0
 
 require (
 	github.com/ThreeDotsLabs/watermill v1.5.2
+	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-chi/render v1.0.3
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.11.1
 )
