@@ -1,36 +1,39 @@
 package http
 
 import (
-	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
+
+	"github.com/go-chi/render"
 )
 
-const (
-	contentTypeEventStream = "text/event-stream"
-	contentTypeJSON        = "application/json"
-	contentTypeXML         = "application/xml"
-)
+/*
+   Code based on [go-chi/render](https://github.com/go-chi/render)
 
-// acceptedContentType parses the Accept header and returns the first supported
-// content type. Defaults to application/json when none match.
-func acceptedContentType(r *http.Request) string {
-	accept := r.Header.Get("Accept")
-	for _, raw := range strings.Split(accept, ",") {
-		t := strings.TrimSpace(raw)
-		if i := strings.Index(t, ";"); i >= 0 {
-			t = strings.TrimSpace(t[:i])
-		}
-		switch t {
-		case contentTypeEventStream, contentTypeJSON, contentTypeXML:
-			return t
-		}
-	}
-	return contentTypeJSON
-}
+   Original code copyright (c) 2016-Present https://github.com/go-chi authors
+   Modifications copyright (c) 2024 Three Dots Labs
+
+   MIT License
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy of
+   this software and associated documentation files (the "Software"), to deal in
+   the Software without restriction, including without limitation the rights to
+   use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+   the Software, and to permit persons to whom the Software is furnished to do so,
+   subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in all
+   copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+   FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+   COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+   IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 type sseResponder struct {
 	marshaler SSEMarshaler
@@ -42,27 +45,30 @@ func (s sseResponder) Respond(w http.ResponseWriter, r *http.Request, v interfac
 	if v != nil {
 		switch reflect.TypeOf(v).Kind() {
 		case reflect.Chan:
-			if acceptedContentType(r) == contentTypeEventStream {
+			switch render.GetAcceptedContentType(r) {
+			case render.ContentTypeEventStream:
 				s.channelEventStream(w, r, v)
 				return
+			default:
+				v = s.channelIntoSlice(w, r, v)
 			}
-			v = s.channelIntoSlice(w, r, v)
 		}
 	}
 
-	switch acceptedContentType(r) {
-	case contentTypeXML:
-		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-		_ = xml.NewEncoder(w).Encode(v)
+	// Format response based on request Accept header.
+	switch render.GetAcceptedContentType(r) {
+	case render.ContentTypeJSON:
+		render.JSON(w, r, v)
+	case render.ContentTypeXML:
+		render.XML(w, r, v)
 	default:
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(v)
+		render.JSON(w, r, v)
 	}
 }
 
 func (s sseResponder) channelEventStream(w http.ResponseWriter, r *http.Request, v interface{}) {
 	if reflect.TypeOf(v).Kind() != reflect.Chan {
-		panic(fmt.Sprintf("sse: event stream expects a channel, not %v", reflect.TypeOf(v).Kind()))
+		panic(fmt.Sprintf("render: event stream expects a channel, not %v", reflect.TypeOf(v).Kind()))
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -85,16 +91,26 @@ func (s sseResponder) channelEventStream(w http.ResponseWriter, r *http.Request,
 			{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ctx.Done())},
 			{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(v)},
 		}); chosen {
-		case 0:
+		case 0: // equivalent to: case <-ctx.Done()
 			_, _ = w.Write([]byte("event: error\ndata: {\"error\":\"Server Timeout\"}\n\n"))
 			return
 
-		default:
+		default: // equivalent to: case v, ok := <-stream
 			if !ok {
 				_, _ = w.Write([]byte("event: EOF\n\n"))
 				return
 			}
 			v := recv.Interface()
+
+			// Build each channel item.
+			if rv, ok := v.(render.Renderer); ok {
+				err := renderer(w, r, rv)
+				if err != nil {
+					v = err
+				} else {
+					v = rv
+				}
+			}
 
 			event, ok := v.(ServerSentEvent)
 			if !ok {
@@ -129,15 +145,76 @@ func (s sseResponder) channelIntoSlice(w http.ResponseWriter, r *http.Request, f
 			{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ctx.Done())},
 			{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(from)},
 		}); chosen {
-		case 0:
+		case 0: // equivalent to: case <-ctx.Done()
 			http.Error(w, "Server Timeout", http.StatusGatewayTimeout)
 			return nil
 
-		default:
+		default: // equivalent to: case v, ok := <-stream
 			if !ok {
 				return to
 			}
-			to = append(to, recv.Interface())
+			v := recv.Interface()
+
+			// Render each channel item.
+			if rv, ok := v.(render.Renderer); ok {
+				err := renderer(w, r, rv)
+				if err != nil {
+					v = err
+				} else {
+					v = rv
+				}
+			}
+
+			to = append(to, v)
 		}
+	}
+}
+
+var (
+	rendererType = reflect.TypeOf(new(render.Renderer)).Elem()
+)
+
+func renderer(w http.ResponseWriter, r *http.Request, v render.Renderer) error {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+
+	// We call it top-down.
+	if err := v.Render(w, r); err != nil {
+		return err
+	}
+
+	// We're done if the Renderer isn't a struct object
+	if rv.Kind() != reflect.Struct {
+		return nil
+	}
+
+	// For structs, we call Render on each field that implements Renderer
+	for i := 0; i < rv.NumField(); i++ {
+		f := rv.Field(i)
+		if f.Type().Implements(rendererType) {
+
+			if isNil(f) {
+				continue
+			}
+
+			fv := f.Interface().(render.Renderer)
+			if err := renderer(w, r, fv); err != nil {
+				return err
+			}
+
+		}
+	}
+
+	return nil
+}
+
+func isNil(f reflect.Value) bool {
+	switch f.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return f.IsNil()
+	default:
+		return false
 	}
 }
