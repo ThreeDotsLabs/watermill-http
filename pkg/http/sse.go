@@ -3,8 +3,8 @@ package http
 import (
 	"context"
 	"net/http"
+	"sync"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 	"github.com/pkg/errors"
 
@@ -168,21 +168,27 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// chi pools its *Context and resets it after ServeHTTP returns. Our
-	// goroutine outlives the handler in some paths (e.g. responder exiting
-	// on ctx.Done()), so a later request can race the goroutine's
-	// chi.URLParam calls on the reset Context. Detach a copy now.
-	streamReq := requestWithDetachedChiContext(r)
-
 	responsesChan := make(chan interface{})
 
+	// The producer goroutine reads from r (including chi.URLParam via the
+	// StreamAdapter). chi pools and resets the request's *Context once
+	// ServeHTTP returns, so the goroutine must not outlive this handler.
+	// wg.Wait below keeps ServeHTTP blocked until the goroutine exits.
+	var wg sync.WaitGroup
+	wg.Add(1)
+
 	go func() {
+		defer wg.Done()
 		defer func() {
 			h.logger.Trace("Closing SSE handler", nil)
 			close(responsesChan)
 		}()
 
-		responsesChan <- response
+		select {
+		case responsesChan <- response:
+		case <-r.Context().Done():
+			return
+		}
 
 		h.logger.Trace("Listening for messages", nil)
 
@@ -195,17 +201,16 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 				msg.Ack()
 
-				nextResponse, ok := h.streamAdapter.NextStreamResponse(streamReq, msg)
-
-				select {
-				case <-r.Context().Done():
-					return
-				default:
+				nextResponse, ok := h.streamAdapter.NextStreamResponse(r, msg)
+				if !ok {
+					continue
 				}
 
-				if ok {
-					h.logger.Trace("Stream responding on message", watermill.LogFields{"uuid": msg.UUID})
-					responsesChan <- nextResponse
+				h.logger.Trace("Stream responding on message", watermill.LogFields{"uuid": msg.UUID})
+				select {
+				case responsesChan <- nextResponse:
+				case <-r.Context().Done():
+					return
 				}
 			case <-r.Context().Done():
 				return
@@ -217,25 +222,8 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		marshaler: h.config.Marshaler,
 	}
 	responder.Respond(w, r, responsesChan)
-}
 
-// requestWithDetachedChiContext returns a copy of r whose context holds a
-// fresh *chi.Context populated from the request's routing context. Used to
-// safely access chi.URLParam from goroutines that may outlive ServeHTTP,
-// because chi pools and resets *chi.Context after the handler returns.
-func requestWithDetachedChiContext(r *http.Request) *http.Request {
-	rctx := chi.RouteContext(r.Context())
-	if rctx == nil {
-		return r
-	}
-
-	copied := chi.NewRouteContext()
-	copied.URLParams.Keys = append(copied.URLParams.Keys, rctx.URLParams.Keys...)
-	copied.URLParams.Values = append(copied.URLParams.Values, rctx.URLParams.Values...)
-	copied.RoutePatterns = append(copied.RoutePatterns, rctx.RoutePatterns...)
-	copied.RoutePath = rctx.RoutePath
-	copied.RouteMethod = rctx.RouteMethod
-	copied.Routes = rctx.Routes
-
-	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, copied))
+	// Block ServeHTTP until the producer goroutine has fully exited, so chi
+	// never resets the request context while the goroutine still reads r.
+	wg.Wait()
 }
