@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/render"
 	"github.com/pkg/errors"
@@ -169,13 +170,25 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 	responsesChan := make(chan interface{})
 
+	// The producer goroutine reads from r (including chi.URLParam via the
+	// StreamAdapter). chi pools and resets the request's *Context once
+	// ServeHTTP returns, so the goroutine must not outlive this handler.
+	// wg.Wait below keeps ServeHTTP blocked until the goroutine exits.
+	var wg sync.WaitGroup
+	wg.Add(1)
+
 	go func() {
+		defer wg.Done()
 		defer func() {
 			h.logger.Trace("Closing SSE handler", nil)
 			close(responsesChan)
 		}()
 
-		responsesChan <- response
+		select {
+		case responsesChan <- response:
+		case <-r.Context().Done():
+			return
+		}
 
 		h.logger.Trace("Listening for messages", nil)
 
@@ -189,16 +202,15 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 				msg.Ack()
 
 				nextResponse, ok := h.streamAdapter.NextStreamResponse(r, msg)
-
-				select {
-				case <-r.Context().Done():
-					return
-				default:
+				if !ok {
+					continue
 				}
 
-				if ok {
-					h.logger.Trace("Stream responding on message", watermill.LogFields{"uuid": msg.UUID})
-					responsesChan <- nextResponse
+				h.logger.Trace("Stream responding on message", watermill.LogFields{"uuid": msg.UUID})
+				select {
+				case responsesChan <- nextResponse:
+				case <-r.Context().Done():
+					return
 				}
 			case <-r.Context().Done():
 				return
@@ -210,4 +222,8 @@ func (h sseHandler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		marshaler: h.config.Marshaler,
 	}
 	responder.Respond(w, r, responsesChan)
+
+	// Block ServeHTTP until the producer goroutine has fully exited, so chi
+	// never resets the request context while the goroutine still reads r.
+	wg.Wait()
 }
