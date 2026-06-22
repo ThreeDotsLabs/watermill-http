@@ -77,7 +77,7 @@ type Subscriber struct {
 
 	logger watermill.LoggerAdapter
 
-	outputChannels     []chan *message.Message
+	outputChannels     map[string][]chan *message.Message
 	outputChannelsLock sync.Locker
 
 	closed bool
@@ -100,7 +100,7 @@ func NewSubscriber(addr string, config SubscriberConfig, logger watermill.Logger
 		config:             config,
 		server:             server,
 		logger:             logger,
-		outputChannels:     make([]chan *message.Message, 0),
+		outputChannels:     make(map[string][]chan *message.Message),
 		outputChannelsLock: &sync.Mutex{},
 	}, nil
 }
@@ -115,7 +115,8 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 	messages := make(chan *message.Message)
 
 	s.outputChannelsLock.Lock()
-	s.outputChannels = append(s.outputChannels, messages)
+	s.outputChannels[url] = append(s.outputChannels[url], messages)
+	channels := s.outputChannels[url]
 	s.outputChannelsLock.Unlock()
 
 	baseLogFields := watermill.LogFields{"url": url, "provider": ProviderName}
@@ -144,24 +145,47 @@ func (s *Subscriber) Subscribe(ctx context.Context, url string) (<-chan *message
 
 		logFields := baseLogFields.Add(watermill.LogFields{"message_uuid": msg.UUID})
 
-		s.logger.Trace("Sending msg", logFields)
-		messages <- msg
+		var acked, nacked, cancelled int
 
-		s.logger.Trace("Waiting for ACK", logFields)
-		select {
-		case <-msg.Acked():
-			code := StatusCodeFromContext(msg.Context(), http.StatusOK)
-			s.logger.Trace("Message acknowledged", logFields.Add(watermill.LogFields{"err": err, "http_status_code": code}))
-			w.WriteHeader(code)
-		case <-msg.Nacked():
-			code := StatusCodeFromContext(msg.Context(), http.StatusInternalServerError)
-			s.logger.Trace("Message nacked", logFields.Add(watermill.LogFields{"err": err, "http_status_code": code}))
-			w.WriteHeader(code)
-		case <-r.Context().Done():
-			code := StatusCodeFromContext(msg.Context(), http.StatusInternalServerError)
-			s.logger.Info("Request stopped without ACK received", logFields.Add(watermill.LogFields{"http_status_code": code}))
-			w.WriteHeader(code)
+		for index, channel := range channels {
+			m := msg.Copy()
+
+			m.SetContext(ctx)
+
+			s.logger.Trace("Sending msg", logFields.Add(watermill.LogFields{"index": index}))
+			channel <- m
+			s.logger.Trace("Waiting for ACK", logFields.Add(watermill.LogFields{"index": index}))
+
+			select {
+			case <-m.Acked():
+				s.logger.Trace("Message acknowledged", logFields.Add(watermill.LogFields{"index": index}))
+				acked++
+			case <-m.Nacked():
+				s.logger.Trace("Message nacked", logFields.Add(watermill.LogFields{"index": index}))
+				nacked++
+			case <-r.Context().Done():
+				s.logger.Info("Request stopped without ACK received", logFields.Add(watermill.LogFields{"index": index}))
+				cancelled++
+			}
 		}
+
+		var code int
+
+		if cancelled != 0 || nacked != 0 || acked == 0 {
+			code = StatusCodeFromContext(msg.Context(), http.StatusInternalServerError)
+		} else {
+			code = StatusCodeFromContext(msg.Context(), http.StatusOK)
+		}
+
+		s.logger.Trace("Messages processed", logFields.Add(watermill.LogFields{
+			"total":            len(channels),
+			"nacked":           nacked,
+			"acked":            acked,
+			"cancelled":        cancelled,
+			"http_status_code": code,
+		}))
+
+		w.WriteHeader(code)
 	})
 
 	return messages, nil
@@ -201,8 +225,10 @@ func (s *Subscriber) Close() error {
 		return err
 	}
 
-	for _, ch := range s.outputChannels {
-		close(ch)
+	for _, channels := range s.outputChannels {
+		for _, ch := range channels {
+			close(ch)
+		}
 	}
 
 	return nil
